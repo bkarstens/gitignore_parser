@@ -64,10 +64,10 @@ class Test(TestCase):
 
     def test_comment(self):
         matches = _parse_gitignore_string(
-                        'somematch\n'
-                        '#realcomment\n'
-                        'othermatch\n'
-                        '\\#imnocomment',
+            'somematch\n'
+            '#realcomment\n'
+            'othermatch\n'
+            '\\#imnocomment',
             fake_base_dir='/home/michael'
         )
         self.assertTrue(matches('/home/michael/somematch'))
@@ -99,7 +99,6 @@ class Test(TestCase):
         self.assertFalse(matches('/home/michael/keep.ignore'))
         self.assertTrue(matches('/home/michael/waste.ignore'))
 
-
     def test_double_asterisks(self):
         matches = _parse_gitignore_string('foo/**/Bar', fake_base_dir='/home/michael')
         self.assertTrue(matches('/home/michael/foo/hello/Bar'))
@@ -113,8 +112,8 @@ data/**
 !.gitkeep
 !data/01_raw/*
             ''',
-            fake_base_dir='/home/michael'
-        )
+                                          fake_base_dir='/home/michael'
+                                          )
         self.assertFalse(matches('/home/michael/data/01_raw/'))
         self.assertFalse(matches('/home/michael/data/01_raw/.gitkeep'))
         self.assertFalse(matches('/home/michael/data/01_raw/raw_file.csv'))
@@ -128,12 +127,70 @@ data/**
         self.assertTrue(matches('/home/michael/directory'))
         self.assertTrue(matches('/home/michael/directory-trailing/'))
 
+    def test_part_of_name(self):
+        matches = _parse_gitignore_string('build/', fake_base_dir='/home/michael')
+        self.assertFalse(matches('/home/michael/folder1/folder2/extra_build/folder3/file.txt'))
+        self.assertFalse(matches('/home/michael/folder1/folder2/extra_build.txt'))
+        self.assertFalse(matches('/home/michael/folder1/build.txt'))
+        self.assertFalse(matches('/home/michael/extra_build.txt'))
+        self.assertFalse(matches('/home/michael/build.txt'))
+        self.assertTrue(matches('/home/michael/build'))
+        self.assertTrue(matches('/home/michael/build/'))
+        self.assertTrue(matches('/home/michael/folder1/build/'))
+        self.assertTrue(matches('/home/michael/folder1/build/folder2'))
+        self.assertTrue(matches('/home/michael/folder1/build/file.txt'))
+        self.assertTrue(matches('/home/michael/folder1/build/folder2/file.txt'))
+
+    def test_trailing_slash(self):
+        matches = _parse_gitignore_string('build/    ', fake_base_dir='/home/michael')
+        self.assertFalse(matches('/home/michael/folder1/folder2/extra_build/folder3/file.txt'))
+        self.assertFalse(matches('/home/michael/folder1/folder2/extra_build.txt'))
+        self.assertFalse(matches('/home/michael/folder1/build.txt'))
+        self.assertFalse(matches('/home/michael/extra_build.txt'))
+        self.assertFalse(matches('/home/michael/build.txt'))
+        self.assertTrue(matches('/home/michael/build'))
+        self.assertTrue(matches('/home/michael/build/'))
+
+    def test_asterisk_folder(self):
+        matches = _parse_gitignore_string('foo*', fake_base_dir='/home/michael')
+        self.assertTrue(matches('/home/michael/foo.txt'))
+        self.assertTrue(matches('/home/michael/foo/bar.txt'))
+        self.assertTrue(matches('/home/michael/fiz/foo.txt'))
+        self.assertFalse(matches('/home/michael/fiz/bar.txt'))
+        self.assertTrue(matches('/home/michael/fiz/foo/bar.txt'))
+        self.assertTrue(matches('/home/michael/fiz/foo/bar/buz.txt'))
+
+    def test_directory_only(self):
+        with patch('os.path.exists', lambda path: True):
+            matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael')
+            with patch('os.path.isdir', lambda path: True):
+                self.assertTrue(matches('/home/michael/foo'))
+            with patch('os.path.isdir', lambda path: False):
+                self.assertFalse(matches('/home/michael/foo'))
+                self.assertTrue(matches('/home/michael/foo/bar.txt'))
+
+    def test_negated_directory_only(self):
+        matches = _parse_gitignore_string('**\n!foo/', fake_base_dir='/home/michael')
+        with patch('os.path.exists', lambda path: True):
+            with patch('os.path.isdir', lambda path: True):
+                self.assertFalse(matches('/home/michael/foo'))
+                self.assertFalse(matches('/home/michael/foo/'))
+            with patch('os.path.isdir', lambda path: False):
+                self.assertTrue(matches('/home/michael/foo'))
+                self.assertFalse(matches('/home/michael/foo/bar.txt'))
+
     def test_supports_path_type_argument(self):
         matches = _parse_gitignore_string('file1\n!file2', fake_base_dir='/home/michael')
         self.assertTrue(matches(Path('/home/michael/file1')))
         self.assertFalse(matches(Path('/home/michael/file2')))
 
+
 def _parse_gitignore_string(data: str, fake_base_dir: str = None):
     with patch('builtins.open', mock_open(read_data=data)):
         success = parse_gitignore(f'{fake_base_dir}/.gitignore', fake_base_dir)
         return success
+
+
+if __name__ == '__main__':
+    import unittest
+    unittest.main()

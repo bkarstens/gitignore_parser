@@ -1,122 +1,66 @@
-import collections
-import os
+# %%
 import re
+from typing import Callable
+from pathlib import PosixPath, WindowsPath, Path
+import os.path
+import collections
+# %%
+GITIGNORE_PATTERN = re.compile(
+    r'(?P<separator>\/)|'  # a forward slash
+    r'(?P<star_star>(?<!\*)\*\*(?!\*))|'  # two asterisks not preceded or followed by an asterisk
+    r'(?P<star>(?<!\*)\*(?!\*))|'  # one asterisk not preceded or followed by an asterisk
+    r'(?P<question_mark>\?)|'  # a question mark
+    r'(?P<bracket_expression>\[(?:\\.|.)*\])|'  # square brackets around characters
+    r'(?P<escaped_char>\\.)|'  # backslash followed by any char. Assuming escaped char.
+    r'(?P<name_piece>[^ \/\*\?\[\]\n\\]+)|'  # not a space, slash, asterisk, question mark, opening or closing square brackets, newline, or backslash
+    r'(?P<spaces>\s+)|'  # space characters
+    r'(?P<error_stars>\*{3,})|'  # 3 or more asterisks
+    r'(?P<error>.+)',  # something went wrong; catch all
+    re.MULTILINE
+)
 
-from os.path import dirname
-from pathlib import Path
-from typing import Union
 
-def handle_negation(file_path, rules):
-    matched = False
-    for rule in rules:
-        if rule.match(file_path):
-            if rule.negation:
-                matched = False
-            else:
-                matched = True
-    return matched
+class GitignoreMatch:
+    def __init__(self, rules) -> None:
+        self.rules = rules
 
-def parse_gitignore(full_path, base_dir=None):
-    if base_dir is None:
-        base_dir = dirname(full_path)
-    rules = []
-    with open(full_path) as ignore_file:
-        counter = 0
-        for line in ignore_file:
-            counter += 1
-            line = line.rstrip('\n')
-            rule = rule_from_pattern(line, base_path=Path(base_dir).resolve(),
-                                     source=(full_path, counter))
-            if rule:
-                rules.append(rule)
-    if not any(r.negation for r in rules):
-        return lambda file_path: any(r.match(file_path) for r in rules)
-    else:
-        # We have negation rules. We can't use a simple "any" to evaluate them.
-        # Later rules override earlier rules.
-        return lambda file_path: handle_negation(file_path, rules)
+    def __call__(self, path) -> bool:
+        # Unix paths are allowed to have backslashes as parts of file and folder names
+        if isinstance(path, PosixPath):
+            path = str(path)
+        elif isinstance(path, WindowsPath):
+            path = str(path).replace('\\', '/')
+        matched = False
+        for rule in self.rules:
+            if match := rule.match(path):
+                # if we don't care if it's a folder, if it's a file in a folder to ignore,
+                # if the path doesn't exist (assume it's not a file), or it is a folder
+                # to be ignored
+                if not rule.directory_only or match.group(1) or not os.path.exists(path) or os.path.isdir(path):
+                    matched = not rule.negation
+        return matched
+        # return any((rule.match(path) is not None) for rule in self.rules)
 
-def rule_from_pattern(pattern, base_path=None, source=None):
-    """
-    Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
-    and return an IgnoreRule suitable for matching against files and
-    directories. Patterns which do not match files, such as comments
-    and blank lines, will return None.
-    Because git allows for nested .gitignore files, a base_path value
-    is required for correct behavior. The base path should be absolute.
-    """
-    if base_path and base_path != Path(base_path).resolve():
-        raise ValueError('base_path must be absolute')
-    # Store the exact pattern for our repr and string functions
-    orig_pattern = pattern
-    # Early returns follow
-    # Discard comments and separators
-    if pattern.strip() == '' or pattern[0] == '#':
-        return
-    # Discard anything with more than two consecutive asterisks
-    if pattern.find('***') > -1:
-        return
-    # Strip leading bang before examining double asterisks
-    if pattern[0] == '!':
-        negation = True
-        pattern = pattern[1:]
-    else:
-        negation = False
-    # Discard anything with invalid double-asterisks -- they can appear
-    # at the start or the end, or be surrounded by slashes
-    for m in re.finditer(r'\*\*', pattern):
-        start_index = m.start()
-        if (start_index != 0 and start_index != len(pattern) - 2 and
-                (pattern[start_index - 1] != '/' or
-                 pattern[start_index + 2] != '/')):
-            return
+    def __repr__(self):
+        return f'GitignoreMatch(rules={self.rules!r})'
 
-    # Special-casing '/', which doesn't match any files or directories
-    if pattern.rstrip() == '/':
-        return
 
-    directory_only = pattern[-1] == '/'
-    # A slash is a sign that we're tied to the base_path of our rule
-    # set.
-    anchored = '/' in pattern[:-1]
-    if pattern[0] == '/':
-        pattern = pattern[1:]
-    if pattern[0] == '*' and len(pattern) >= 2 and pattern[1] == '*':
-        pattern = pattern[2:]
-        anchored = False
-    if pattern[0] == '/':
-        pattern = pattern[1:]
-    if pattern[-1] == '/':
-        pattern = pattern[:-1]
-    # patterns with leading hashes are escaped with a backslash in front, unescape it
-    if pattern[0] == '\\' and pattern[1] == '#':
-        pattern = pattern[1:]
-    # trailing spaces are ignored unless they are escaped with a backslash
-    i = len(pattern)-1
-    striptrailingspaces = True
-    while i > 1 and pattern[i] == ' ':
-        if pattern[i-1] == '\\':
-            pattern = pattern[:i-1] + pattern[i:]
-            i = i - 1
-            striptrailingspaces = False
-        else:
-            if striptrailingspaces:
-                pattern = pattern[:i]
-        i = i - 1
-    regex = fnmatch_pathname_to_regex(
-        pattern, directory_only, negation, anchored=bool(anchored)
-    )
-    return IgnoreRule(
-        pattern=orig_pattern,
-        regex=regex,
-        negation=negation,
-        directory_only=directory_only,
-        anchored=anchored,
-        base_path=Path(base_path) if base_path else None,
-        source=source
-    )
+class GitignoreMatchFast(GitignoreMatch):
+    def __init__(self, rules) -> None:
+        super().__init__(rules)
+        self.regex = re.compile('|'.join(rule.regex.pattern for rule in self.rules))
 
-whitespace_re = re.compile(r'(\\ )+$')
+    def __call__(self, path) -> bool:
+        # Unix paths are allowed to have backslashes as parts of file and folder names
+        if isinstance(path, PosixPath):
+            path = str(path)
+        elif isinstance(path, WindowsPath):
+            path = str(path).replace('\\', '/')
+        return self.regex.fullmatch(path) is not None
+
+    def __repr__(self):
+        return f'GitignoreMatchBasic(rules={self.rules!r}, regex={self.regex!r})'
+
 
 IGNORE_RULE_FIELDS = [
     'pattern', 'regex',  # Basic values
@@ -131,87 +75,133 @@ class IgnoreRule(collections.namedtuple('IgnoreRule_', IGNORE_RULE_FIELDS)):
         return self.pattern
 
     def __repr__(self):
-        return ''.join(['IgnoreRule(\'', self.pattern, '\')'])
+        return f"IgnoreRule('{self.pattern}')"
 
-    def match(self, abs_path: Union[str, Path]):
-        matched = False
-        if self.base_path:
-            rel_path = str(Path(abs_path).resolve().relative_to(self.base_path))
-        else:
-            rel_path = str(Path(abs_path))
-        # Path() strips the trailing slash, so we need to preserve it
-        # in case of directory-only negation
-        if self.negation and type(abs_path) == str and abs_path[-1] == '/':
-            rel_path += '/'
-        if rel_path.startswith('./'):
-            rel_path = rel_path[2:]
-        if re.search(self.regex, rel_path):
-            matched = True
-        return matched
+    def match(self, abs_path: str | Path) -> re.Match | None:
+        return self.regex.fullmatch(abs_path)
+
+# %%
 
 
-# Frustratingly, python's fnmatch doesn't provide the FNM_PATHNAME
-# option that .gitignore's behavior depends on.
-def fnmatch_pathname_to_regex(
-    pattern, directory_only: bool, negation: bool, anchored: bool = False
-):
+def parse_gitignore(gitignore_path: str | Path, base_dir: str) -> Callable[[str], bool]:
+
+    with open(gitignore_path) as gitignore_file:
+        gitignore_content = gitignore_file.read()
+    return parse_gitignore_lines(gitignore_content.splitlines(), base_dir, gitignore_path)
+
+
+def parse_gitignore_lines(gitignore_lines: list[str], base_dir: str, source=None) -> Callable[[str], bool]:
+
+    rules = []
+
+    for line_number, line in enumerate(gitignore_lines):
+        if ignore_rule := rule_from_pattern(pattern=line, base_path=base_dir, source=(source, line_number)):
+            rules.append(ignore_rule)
+
+    if any(rule.negation for rule in rules) or os.path.exists(base_dir) and any(rule.directory_only for rule in rules):
+        return GitignoreMatch(rules)
+    return GitignoreMatchFast(rules)
+
+
+def rule_from_pattern(pattern, base_path, source=None):
     """
-    Implements fnmatch style-behavior, as though with FNM_PATHNAME flagged;
-    the path separator will not match shell-style '*' and '.' wildcards.
+    Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
+    and return an IgnoreRule suitable for matching against files and
+    directories. Patterns which do not match files, such as comments
+    and blank lines, will return None.
+    Because git allows for nested .gitignore files, a base_path value
+    is required for correct behavior. The base path should be absolute.
     """
-    i, n = 0, len(pattern)
+    # A blank line matches no files, so it can serve as a separator for
+    # readability.
+    # A line starting with `#` serves as a comment. Put a backslash (\) in
+    # front of the first hash for patterns that begin with a hash.
+    if not pattern or pattern.startswith('#'):
+        return
 
-    seps = [re.escape(os.sep)]
-    if os.altsep is not None:
-        seps.append(re.escape(os.altsep))
-    seps_group = '[' + '|'.join(seps) + ']'
-    nonsep = r'[^{}]'.format('|'.join(seps))
+    negation = pattern.startswith('!')
 
-    res = []
-    while i < n:
-        c = pattern[i]
-        i += 1
-        if c == '*':
-            try:
-                if pattern[i] == '*':
-                    i += 1
-                    res.append('.*')
-                    if pattern[i] == '/':
-                        i += 1
-                        res.append(''.join([seps_group, '?']))
-                else:
-                    res.append(''.join([nonsep, '*']))
-            except IndexError:
-                res.append(''.join([nonsep, '*']))
-        elif c == '?':
-            res.append(nonsep)
-        elif c == '/':
-            res.append(seps_group)
-        elif c == '[':
-            j = i
-            if j < n and pattern[j] == '!':
-                j += 1
-            if j < n and pattern[j] == ']':
-                j += 1
-            while j < n and pattern[j] != ']':
-                j += 1
-            if j >= n:
-                res.append('\\[')
+    pending_spaces = ''
+
+    regex_translation = ['']
+    first_separator_index = 0
+    index = 0
+    for index, match in enumerate(GITIGNORE_PATTERN.finditer(pattern, pos=negation), start=1):
+        # Trailing spaces are ignored unless they are quoted with backslash (\).
+        # buffer spacing until next loop (aka it's not trailing). Escaped spaces
+        # handled in escaped_char section
+        if pending_spaces:
+            regex_translation.append(pending_spaces)
+            pending_spaces = ''
+
+        if match.group('error_stars'):
+            # print(f'Error on pattern {line_number}:')
+            print(pattern)
+            print(f'{" " * match.start()}{"^" * len(match.group(0))}')
+            return
+
+        elif match.group('error'):
+            # print(f'Unkown error on pattern {line_number}:')
+            print(pattern)
+            return
+
+        elif match.group('separator'):
+            first_separator_index = first_separator_index or index
+            # handle `a/**/b` matching `a/b`
+            if regex_translation[-1] == '.*':
+                regex_translation[-1] = '(?:.*/)?'
             else:
-                stuff = pattern[i:j].replace('\\', '\\\\')
-                i = j + 1
-                if stuff[0] == '!':
-                    stuff = ''.join(['^', stuff[1:]])
-                elif stuff[0] == '^':
-                    stuff = ''.join('\\' + stuff)
-                res.append('[{}]'.format(stuff))
-        else:
-            res.append(re.escape(c))
-    if anchored:
-        res.insert(0, '^')
-    res.insert(0, '(?ms)')
-    if not directory_only:
-        res.append('$')
-    if directory_only and negation:
-        res.append('/$')
-    return ''.join(res)
+                regex_translation.append('/')
+
+        elif match.group('star_star'):
+            regex_translation.append('.*')
+
+        elif match.group('star'):
+            # An asterisk `*` matches anything except a slash.
+            regex_translation.append('[^/]*')
+
+        elif match.group('question_mark'):
+            # The character `?` matches any one character except `/`.
+            regex_translation.append('[^/]')
+
+        elif bracket_expression := match.group('bracket_expression'):
+            regex_translation.append(bracket_expression)
+
+        elif escaped_char := match.group('escaped_char'):
+            regex_translation.append(re.escape(escaped_char[1]))
+
+        elif name_piece := match.group('name_piece'):
+            regex_translation.append(re.escape(name_piece))
+
+        elif spaces := match.group('spaces'):
+            # Trailing spaces are ignored unless they are quoted with backslash (\).
+            pending_spaces = spaces
+            index -= 1
+            continue
+    else:
+        regex_translation = regex_translation[1:]
+        # if was whitespace or just a slash
+        if not regex_translation or regex_translation == ['/']:
+            return
+        anchored = first_separator_index and first_separator_index != index
+        # Also match potential folder contents
+        if regex_translation[-1] == '[^/]*':
+            regex_translation.append('(?:/.*)?')
+        if directory_only := regex_translation[-1] == '/':
+            # keep content to  compare against directory_only flag
+            regex_translation[-1] = '(/.*)?'
+
+        regular_expression = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
+                              ('' if anchored else '(?:.*/)?') +
+                              ''.join(regex_translation))
+        # print(f"`{pattern}` -> `{regular_expression}`")
+        return IgnoreRule(
+            pattern=pattern,
+            regex=re.compile(regular_expression),
+            negation=negation,
+            directory_only=directory_only,
+            anchored=anchored,
+            base_path=base_path,
+            source=source)
+
+# %%
