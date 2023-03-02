@@ -1,16 +1,18 @@
 # %%
 import re
-from typing import Callable
+from typing import Callable, Union
 from pathlib import PosixPath, WindowsPath, Path
 import os.path
 import collections
+
+# TODO: investigate bracket differences (ex: `foo[\0].txt` should match `foo0.txt`)
 # %%
 GITIGNORE_PATTERN = re.compile(
     r'(?P<separator>\/)|'  # a forward slash
     r'(?P<star_star>(?<!\*)\*\*(?!\*))|'  # two asterisks not preceded or followed by an asterisk
     r'(?P<star>(?<!\*)\*(?!\*))|'  # one asterisk not preceded or followed by an asterisk
     r'(?P<question_mark>\?)|'  # a question mark
-    r'(?P<bracket_expression>\[(?:\\.|.)*\])|'  # square brackets around characters
+    r'(?P<bracket_expression>\[(?:\\.|[^\\])+\])|'  # square brackets around characters
     r'(?P<escaped_char>\\.)|'  # backslash followed by any char. Assuming escaped char.
     r'(?P<name_piece>[^ \/\*\?\[\]\n\\]+)|'  # not a space, slash, asterisk, question mark, opening or closing square brackets, newline, or backslash
     r'(?P<spaces>\s+)|'  # space characters
@@ -19,10 +21,13 @@ GITIGNORE_PATTERN = re.compile(
     re.MULTILINE
 )
 
+ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
+
 
 class GitignoreMatch:
     def __init__(self, rules) -> None:
         self.rules = rules
+        self.negation = any(rule.negation for rule in rules)
 
     def __call__(self, path) -> bool:
         # Unix paths are allowed to have backslashes as parts of file and folder names
@@ -37,6 +42,8 @@ class GitignoreMatch:
                 # if the path doesn't exist (assume it's not a file), or it is a folder
                 # to be ignored
                 if not rule.directory_only or match.group(1) or not os.path.exists(path) or os.path.isdir(path):
+                    if not self.negation:
+                        return True
                     matched = not rule.negation
         return matched
         # return any((rule.match(path) is not None) for rule in self.rules)
@@ -77,13 +84,13 @@ class IgnoreRule(collections.namedtuple('IgnoreRule_', IGNORE_RULE_FIELDS)):
     def __repr__(self):
         return f"IgnoreRule('{self.pattern}')"
 
-    def match(self, abs_path: str | Path) -> re.Match | None:
+    def match(self, abs_path: Union[str, Path]) -> re.Match | None:
         return self.regex.fullmatch(abs_path)
 
 # %%
 
 
-def parse_gitignore(gitignore_path: str | Path, base_dir: str) -> Callable[[str], bool]:
+def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str) -> Callable[[str], bool]:
 
     with open(gitignore_path) as gitignore_file:
         gitignore_content = gitignore_file.read()
@@ -134,18 +141,10 @@ def rule_from_pattern(pattern, base_path, source=None):
             regex_translation.append(pending_spaces)
             pending_spaces = ''
 
-        if match.group('error_stars'):
-            # print(f'Error on pattern {line_number}:')
-            print(pattern)
-            print(f'{" " * match.start()}{"^" * len(match.group(0))}')
-            return
+        separator, star_star, star, question_mark, bracket_expression, \
+            escaped_char, name_piece, spaces, error_stars, error = match.groups()
 
-        elif match.group('error'):
-            # print(f'Unkown error on pattern {line_number}:')
-            print(pattern)
-            return
-
-        elif match.group('separator'):
+        if separator:
             first_separator_index = first_separator_index or index
             # handle `a/**/b` matching `a/b`
             if regex_translation[-1] == '.*':
@@ -153,31 +152,50 @@ def rule_from_pattern(pattern, base_path, source=None):
             else:
                 regex_translation.append('/')
 
-        elif match.group('star_star'):
+        elif star_star:
             regex_translation.append('.*')
 
-        elif match.group('star'):
+        elif star:
             # An asterisk `*` matches anything except a slash.
             regex_translation.append('[^/]*')
 
-        elif match.group('question_mark'):
+        elif question_mark:
             # The character `?` matches any one character except `/`.
             regex_translation.append('[^/]')
 
-        elif bracket_expression := match.group('bracket_expression'):
-            regex_translation.append(bracket_expression)
+        elif bracket_expression:
+            def sub(match: re.Match) -> str:
+                print(match.group(0), match.group(1))
+                if match.group(1) in r'\-^':
+                    return match.group(0)
+                return match.group(1)
+            # only keep escaping if \\,\-,\^. otherwise \0 and \d would be wrong
+            bracket_regex = ESCAPED_CHAR_PATTERN.sub(sub, bracket_expression)
+            # both ! and ^ are valid negation in .gitignore but only ^ is interpreted as negation in regex.
+            if bracket_regex.startswith('[!'):
+                bracket_regex = '[^' + bracket_regex[2:]
+            regex_translation.append(bracket_regex)
 
-        elif escaped_char := match.group('escaped_char'):
+        elif escaped_char:
             regex_translation.append(re.escape(escaped_char[1]))
 
-        elif name_piece := match.group('name_piece'):
+        elif name_piece:
             regex_translation.append(re.escape(name_piece))
 
-        elif spaces := match.group('spaces'):
+        elif spaces:
             # Trailing spaces are ignored unless they are quoted with backslash (\).
             pending_spaces = spaces
             index -= 1
             continue
+        elif error_stars:
+            # print(f'Error on pattern {line_number}:')
+            print(pattern)
+            print(f'{" " * match.start()}{"^" * len(match.group(0))}')
+            return
+        else:
+            # print(f'Unkown error on pattern {line_number}:')
+            print(pattern)
+            return
     else:
         regex_translation = regex_translation[1:]
         # if was whitespace or just a slash

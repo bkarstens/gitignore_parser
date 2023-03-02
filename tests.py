@@ -127,6 +127,35 @@ data/**
         self.assertTrue(matches('/home/michael/directory'))
         self.assertTrue(matches('/home/michael/directory-trailing/'))
 
+    def test_bracket_escapes(self):
+        matches = _parse_gitignore_string(r'foo[\0].txt', fake_base_dir='/home/michael')
+        self.assertTrue(matches('/home/michael/foo0.txt'))
+        self.assertFalse(matches(r'/home/michael/foo\.txt'))
+        matches = _parse_gitignore_string(r'foo[1\-3\w].txt', fake_base_dir='/home/michael')
+        self.assertTrue(matches('/home/michael/foo1.txt'))
+        self.assertFalse(matches('/home/michael/foo2.txt'))
+        self.assertTrue(matches('/home/michael/foo3.txt'))
+        self.assertTrue(matches('/home/michael/foo-.txt'))
+        self.assertTrue(matches('/home/michael/foow.txt'))
+        self.assertFalse(matches('/home/michael/fooq.txt'))
+
+    def test_negated_bracket(self):
+        matches = _parse_gitignore_string(r'foo[^1-3].txt', fake_base_dir='/home/michael')
+        self.assertTrue(matches('/home/michael/foo0.txt'))
+        self.assertFalse(matches('/home/michael/foo1.txt'))
+        self.assertFalse(matches('/home/michael/foo2.txt'))
+        self.assertFalse(matches('/home/michael/foo3.txt'))
+        self.assertTrue(matches('/home/michael/foo4.txt'))
+        self.assertTrue(matches('/home/michael/foop.txt'))
+
+        matches = _parse_gitignore_string(r'foo[!1-3].txt', fake_base_dir='/home/michael')
+        self.assertTrue(matches('/home/michael/foo0.txt'))
+        self.assertFalse(matches('/home/michael/foo1.txt'))
+        self.assertFalse(matches('/home/michael/foo2.txt'))
+        self.assertFalse(matches('/home/michael/foo3.txt'))
+        self.assertTrue(matches('/home/michael/foo4.txt'))
+        self.assertTrue(matches('/home/michael/foop.txt'))
+
     def test_part_of_name(self):
         matches = _parse_gitignore_string('build/', fake_base_dir='/home/michael')
         self.assertFalse(matches('/home/michael/folder1/folder2/extra_build/folder3/file.txt'))
