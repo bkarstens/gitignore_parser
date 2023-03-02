@@ -84,7 +84,7 @@ class IgnoreRule(collections.namedtuple('IgnoreRule_', IGNORE_RULE_FIELDS)):
     def __repr__(self):
         return f"IgnoreRule('{self.pattern}')"
 
-    def match(self, abs_path: Union[str, Path]) -> re.Match | None:
+    def match(self, abs_path: Union[str, Path]) -> Union[re.Match, None]:
         return self.regex.fullmatch(abs_path)
 
 # %%
@@ -141,6 +141,7 @@ def rule_from_pattern(pattern, base_path, source=None):
             regex_translation.append(pending_spaces)
             pending_spaces = ''
 
+        # only one of these groups won't be an empty string
         separator, star_star, star, question_mark, bracket_expression, \
             escaped_char, name_piece, spaces, error_stars, error = match.groups()
 
