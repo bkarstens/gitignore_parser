@@ -1,9 +1,10 @@
 # %%
 import re
-from typing import Callable, Union, List
+from typing import Callable, Union, List, Tuple
 from pathlib import PosixPath, WindowsPath, Path
 import os.path
 import collections
+import logging
 
 # TODO: investigate bracket differences (ex: `foo[\0].txt` should match `foo0.txt`)
 # %%
@@ -112,7 +113,7 @@ def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source=None
     return GitignoreMatchFast(rules)
 
 
-def rule_from_pattern(pattern, base_path, source=None):
+def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 0)):
     """
     Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
     and return an IgnoreRule suitable for matching against files and
@@ -168,7 +169,6 @@ def rule_from_pattern(pattern, base_path, source=None):
 
         elif bracket_expression:
             def sub(match: re.Match) -> str:
-                print(match.group(0), match.group(1))
                 if match.group(1) in r'\-^':
                     return match.group(0)
                 return match.group(1)
@@ -191,13 +191,10 @@ def rule_from_pattern(pattern, base_path, source=None):
             index -= 1
             continue
         elif error_stars:
-            # print(f'Error on pattern {line_number}:')
-            print(pattern)
-            print(f'{" " * match.start()}{"^" * len(match.group(0))}')
+            logging.error(f'error from {source[0]} on line {source[1]}\n{pattern}\n{" " * match.start()}{"^" * len(match.group(0))}')
             return
         else:
-            # print(f'Unknown error on pattern {line_number}:')
-            print(pattern)
+            logging.error(pattern)
             return
     else:
         regex_translation = regex_translation[1:]
@@ -216,7 +213,6 @@ def rule_from_pattern(pattern, base_path, source=None):
         regular_expression = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
                               ('' if anchored else '(?:.*/)?') +
                               ''.join(regex_translation))
-        # print(f"`{pattern}` -> `{regular_expression}`")
         return IgnoreRule(
             pattern=pattern,
             regex=re.compile(regular_expression),
