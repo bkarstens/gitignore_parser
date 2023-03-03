@@ -1,6 +1,6 @@
 # %%
 import re
-from typing import Callable, Union
+from typing import Callable, Union, List
 from pathlib import PosixPath, WindowsPath, Path
 import os.path
 import collections
@@ -37,7 +37,8 @@ class GitignoreMatch:
             path = str(path).replace('\\', '/')
         matched = False
         for rule in self.rules:
-            if match := rule.match(path):
+            match = rule.match(path)
+            if match:
                 # if we don't care if it's a folder, if it's a file in a folder to ignore,
                 # if the path doesn't exist (assume it's not a file), or it is a folder
                 # to be ignored
@@ -97,12 +98,13 @@ def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str) -> Callable
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir, gitignore_path)
 
 
-def parse_gitignore_lines(gitignore_lines: list[str], base_dir: str, source=None) -> Callable[[str], bool]:
+def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source=None) -> Callable[[str], bool]:
 
     rules = []
 
     for line_number, line in enumerate(gitignore_lines):
-        if ignore_rule := rule_from_pattern(pattern=line, base_path=base_dir, source=(source, line_number)):
+        ignore_rule = rule_from_pattern(pattern=line, base_path=base_dir, source=(source, line_number))
+        if ignore_rule:
             rules.append(ignore_rule)
 
     if any(rule.negation for rule in rules) or os.path.exists(base_dir) and any(rule.directory_only for rule in rules):
@@ -194,7 +196,7 @@ def rule_from_pattern(pattern, base_path, source=None):
             print(f'{" " * match.start()}{"^" * len(match.group(0))}')
             return
         else:
-            # print(f'Unkown error on pattern {line_number}:')
+            # print(f'Unknown error on pattern {line_number}:')
             print(pattern)
             return
     else:
@@ -206,8 +208,9 @@ def rule_from_pattern(pattern, base_path, source=None):
         # Also match potential folder contents
         if regex_translation[-1] == '[^/]*':
             regex_translation.append('(?:/.*)?')
-        if directory_only := regex_translation[-1] == '/':
-            # keep content to  compare against directory_only flag
+        directory_only = regex_translation[-1] == '/'
+        if directory_only:
+            # keep content to compare against directory_only flag
             regex_translation[-1] = '(/.*)?'
 
         regular_expression = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
