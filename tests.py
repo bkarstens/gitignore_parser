@@ -16,7 +16,7 @@ class Test(TestCase):
         self.assertFalse(matches('/home/michael/main.py'))
         self.assertTrue(matches('/home/michael/main.pyc'))
         self.assertTrue(matches('/home/michael/dir/main.pyc'))
-        self.assertTrue(matches('/home/michael/__pycache__'))
+        self.assertTrue(matches('/home/michael/__pycache__/'))
 
     def test_wildcard(self):
         matches = _parse_gitignore_string(
@@ -77,13 +77,15 @@ class Test(TestCase):
 
     def test_ignore_directory(self):
         matches = _parse_gitignore_string('.venv/', fake_base_dir='/home/michael')
-        self.assertTrue(matches('/home/michael/.venv'))
+        self.assertFalse(matches('/home/michael/.venv'))  # git assumes things are files if they don't exist
+        self.assertTrue(matches('/home/michael/.venv/'))
         self.assertTrue(matches('/home/michael/.venv/folder'))
         self.assertTrue(matches('/home/michael/.venv/file.txt'))
 
     def test_ignore_directory_asterisk(self):
         matches = _parse_gitignore_string('.venv/*', fake_base_dir='/home/michael')
         self.assertFalse(matches('/home/michael/.venv'))
+        self.assertTrue(matches('/home/michael/.venv/'))
         self.assertTrue(matches('/home/michael/.venv/folder'))
         self.assertTrue(matches('/home/michael/.venv/file.txt'))
 
@@ -163,7 +165,7 @@ data/**
         self.assertFalse(matches('/home/michael/folder1/build.txt'))
         self.assertFalse(matches('/home/michael/extra_build.txt'))
         self.assertFalse(matches('/home/michael/build.txt'))
-        self.assertTrue(matches('/home/michael/build'))
+        self.assertFalse(matches('/home/michael/build'))
         self.assertTrue(matches('/home/michael/build/'))
         self.assertTrue(matches('/home/michael/folder1/build/'))
         self.assertTrue(matches('/home/michael/folder1/build/folder2'))
@@ -177,7 +179,7 @@ data/**
         self.assertFalse(matches('/home/michael/folder1/build.txt'))
         self.assertFalse(matches('/home/michael/extra_build.txt'))
         self.assertFalse(matches('/home/michael/build.txt'))
-        self.assertTrue(matches('/home/michael/build'))
+        self.assertFalse(matches('/home/michael/build'))
         self.assertTrue(matches('/home/michael/build/'))
 
     def test_asterisk_folder(self):
@@ -188,6 +190,31 @@ data/**
         self.assertFalse(matches('/home/michael/fiz/bar.txt'))
         self.assertTrue(matches('/home/michael/fiz/foo/bar.txt'))
         self.assertTrue(matches('/home/michael/fiz/foo/bar/buz.txt'))
+
+    def test_negation_complex(self):
+        matches = _parse_gitignore_string("""
+/foo/**/bar*
+!/foo/bar
+!barfiz/
+foo/barfiz/buz
+!fiz
+        """, fake_base_dir='/home/michael')
+        # self.assertFalse(matches('/home/michael/foo/fiz/bar'))     # git ignores this path even though `!fiz`?
+        self.assertFalse(matches('/home/michael/foo/bar/fiz'))
+        # self.assertFalse(matches('/home/michael/foo/barfoo/fiz'))  # git ignores this path even though `!fiz`?
+        self.assertTrue(matches('/home/michael/foo/barfoo.txt'))
+
+        self.assertFalse(matches('/home/michael/foo/barfiz/asdf.txt'))
+        # self.assertFalse(matches('/home/michael/foo/fiz/barfiz/asdf.txt'))      # git ignores this path even though `!fiz`?
+        # self.assertFalse(matches('/home/michael/foo/fiz/barfiz/buz/asdf.txt'))  # git ignores this path even though `!fiz`?
+
+        self.assertTrue(matches('/home/michael/foo/barfiz/buz'))
+        self.assertFalse(matches('/home/michael/foo/bar'))
+        self.assertTrue(matches('/home/michael/foo/bar.txt'))
+
+        # self.assertFalse(matches('/home/michael/foo/barfiz/buz/fiz'))  # git ignores this path even though `!fiz`?
+        self.assertFalse(matches('/home/michael/fiz/foo/barfiz/buz'))
+        self.assertFalse(matches('/home/michael/asdf/foo/barfiz/buz'))
 
     def test_directory_only(self):
         matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael', honor_directory_only=True)

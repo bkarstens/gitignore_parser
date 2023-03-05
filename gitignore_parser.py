@@ -53,7 +53,7 @@ class GitignoreMatch:
         self.honor_directory_only = honor_directory_only
         for rule in rules:
             if rule.negation:
-                if pattern:  # trim trailing ? for folder only negation
+                if pattern:  # $ needed for correct negated dir-only pattern (ex: `!my_dir/`)
                     pattern = f'(?!{rule.regex}$)(?:{pattern})'
                     pattern_dir_only = f'(?!{rule.dir_only_regex}$)(?:{pattern})'
             else:
@@ -66,10 +66,11 @@ class GitignoreMatch:
         self.regex = re.compile(pattern)
         self.dir_only_regex = re.compile(pattern_dir_only)
 
-    def __call__(self, path) -> bool:
+    def __call__(self, path: Union[str, Path]) -> bool:
         if isinstance(path, Path):
             path = path.as_posix()
-        if not self.honor_directory_only or os.path.isdir(path):
+            print(f'{self.honor_directory_only and os.path.isdir(path) = }')
+        if self.honor_directory_only and os.path.isdir(path):
             return self.dir_only_regex.fullmatch(path) is not None
         return self.regex.fullmatch(path) is not None
 
@@ -81,14 +82,14 @@ class GitignoreMatch:
 # %%
 
 
-def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str, honor_directory_only: bool = False) -> Callable[[str], bool]:
+def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str, honor_directory_only: bool = False) -> Callable[[Union[str, Path]], bool]:
 
     with open(gitignore_path) as gitignore_file:
         gitignore_content = gitignore_file.read()
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir, str(gitignore_path), honor_directory_only)
 
 
-def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source='', honor_directory_only: bool = False) -> Callable[[str], bool]:
+def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source='', honor_directory_only: bool = False) -> Callable[[Union[str, Path]], bool]:
 
     rules = []
     for line_number, line in enumerate(gitignore_lines):
@@ -144,8 +145,9 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             first_separator_index = first_separator_index or index
             # handle `a/**/b` matching `a/b`
             if regex_translation[-1] == '.*':
-                regex_translation[-1] = '(?:.*/)?'
-                dir_only_regex_translation[-1] = '(?:.*/)?'
+                optional = '' if negation else '?'
+                regex_translation[-1] = '(?:.*/)' + optional
+                dir_only_regex_translation[-1] = '(?:.*/)' + optional
             else:
                 append_translation('/')
 
@@ -196,20 +198,24 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
         if not regex_translation or regex_translation == ['/']:
             return
         anchored = first_separator_index and first_separator_index != index
+        directory_only = regex_translation[-1] == '/'
         # Also match potential folder contents
         if regex_translation[-1] == '[^/]*':
             append_translation('(?:/.*)?')
-        directory_only = regex_translation[-1] == '/'
-        if directory_only:
-            # keep content to compare against directory_only flag
-            regex_translation[-1] = '/.*'
+        elif directory_only:
             dir_only_regex_translation[-1] = '(?:/.*)?'
+            regex_translation[-1] = '/.*'
+        else:
+            append_translation('(?:/.*)?')
+
+        if base_path.endswith('/'):
+            base_path = base_path[:-1]
 
         regex = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
                  ('' if anchored else '(?:.*/)?') +
                  ''.join(regex_translation))
-        dir_only_regex = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
-                          ('' if anchored else '(?:.*/)?') +
+        dir_only_regex = (re.escape(base_path) +
+                          ('' if anchored else '/(?:.*/)?') +
                           ''.join(dir_only_regex_translation))
         return IgnoreRule(
             pattern=pattern,
