@@ -1,12 +1,11 @@
 # %%
 import re
 from typing import Callable, Union, List, Tuple
-from pathlib import PosixPath, WindowsPath, Path
+from pathlib import Path
 import os.path
 import collections
 import logging
 
-# TODO: investigate bracket differences (ex: `foo[\0].txt` should match `foo0.txt`)
 # %%
 GITIGNORE_PATTERN = re.compile(
     r'(?P<separator>\/)|'  # a forward slash
@@ -31,24 +30,20 @@ class GitignoreMatch:
         self.negation = any(rule.negation for rule in rules)
 
     def __call__(self, path) -> bool:
-        # Unix paths are allowed to have backslashes as parts of file and folder names
-        if isinstance(path, PosixPath):
-            path = str(path)
-        elif isinstance(path, WindowsPath):
-            path = str(path).replace('\\', '/')
+        if isinstance(path, Path):
+            path = path.as_posix()
         matched = False
+        is_dir = os.path.isdir(path)  # if it doesn't exist, assuming it's a file
         for rule in self.rules:
             match = rule.match(path)
             if match:
                 # if we don't care if it's a folder, if it's a file in a folder to ignore,
-                # if the path doesn't exist (assume it's not a file), or it is a folder
-                # to be ignored
-                if not rule.directory_only or match.group(1) or not os.path.exists(path) or os.path.isdir(path):
+                # or it is a folder to be ignored
+                if not rule.directory_only or match.group(1) or is_dir:
                     if not self.negation:
                         return True
                     matched = not rule.negation
         return matched
-        # return any((rule.match(path) is not None) for rule in self.rules)
 
     def __repr__(self):
         return f'GitignoreMatch(rules={self.rules!r})'
@@ -60,15 +55,29 @@ class GitignoreMatchFast(GitignoreMatch):
         self.regex = re.compile('|'.join(rule.regex.pattern for rule in self.rules))
 
     def __call__(self, path) -> bool:
-        # Unix paths are allowed to have backslashes as parts of file and folder names
-        if isinstance(path, PosixPath):
-            path = str(path)
-        elif isinstance(path, WindowsPath):
-            path = str(path).replace('\\', '/')
+        if isinstance(path, Path):
+            return self.regex.fullmatch(path.as_posix()) is not None
         return self.regex.fullmatch(path) is not None
 
     def __repr__(self):
-        return f'GitignoreMatchBasic(rules={self.rules!r}, regex={self.regex!r})'
+        return f'GitignoreMatchFast(rules={self.rules!r}, regex={self.regex!r})'
+
+
+class GitignoreMatchNoNegation(GitignoreMatchFast):
+    def __init__(self, rules) -> None:
+        super().__init__(rules)
+
+    def __call__(self, path) -> bool:
+        if os.path.isdir(path):
+            return GitignoreMatch.__call__(self, path)
+        if isinstance(path, Path):
+            match = self.regex.fullmatch(path.as_posix())
+        else:
+            match = self.regex.fullmatch(path)
+        return bool(match and match.group(1))
+
+    def __repr__(self):
+        return f'GitignoreMatchNoNegation(rules={self.rules!r}, regex={self.regex!r})'
 
 
 IGNORE_RULE_FIELDS = [
@@ -86,20 +95,20 @@ class IgnoreRule(collections.namedtuple('IgnoreRule_', IGNORE_RULE_FIELDS)):
     def __repr__(self):
         return f"IgnoreRule('{self.pattern}')"
 
-    def match(self, abs_path: Union[str, Path]) -> Union[re.Match, None]:
-        return self.regex.fullmatch(abs_path)
+    def __init__(self, *args, **kwargs):
+        self.match = self.regex.fullmatch
 
 # %%
 
 
-def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str) -> Callable[[str], bool]:
+def parse_gitignore(gitignore_path: Union[str, Path], base_dir: str, honor_directory_only: bool = False) -> Callable[[str], bool]:
 
     with open(gitignore_path) as gitignore_file:
         gitignore_content = gitignore_file.read()
-    return parse_gitignore_lines(gitignore_content.splitlines(), base_dir, gitignore_path)
+    return parse_gitignore_lines(gitignore_content.splitlines(), base_dir, str(gitignore_path), honor_directory_only)
 
 
-def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source=None) -> Callable[[str], bool]:
+def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source='', honor_directory_only: bool = False) -> Callable[[str], bool]:
 
     rules = []
 
@@ -108,8 +117,10 @@ def parse_gitignore_lines(gitignore_lines: List[str], base_dir: str, source=None
         if ignore_rule:
             rules.append(ignore_rule)
 
-    if any(rule.negation for rule in rules) or os.path.exists(base_dir) and any(rule.directory_only for rule in rules):
+    if any(rule.negation for rule in rules):
         return GitignoreMatch(rules)
+    if honor_directory_only and any(rule.directory_only for rule in rules):
+        return GitignoreMatchNoNegation(rules)
     return GitignoreMatchFast(rules)
 
 
@@ -221,5 +232,3 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             anchored=anchored,
             base_path=base_path,
             source=source)
-
-# %%

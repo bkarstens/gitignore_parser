@@ -191,7 +191,7 @@ data/**
 
     def test_directory_only(self):
         with patch('os.path.exists', lambda path: True):
-            matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael')
+            matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael', honor_directory_only=True)
             with patch('os.path.isdir', lambda path: True):
                 self.assertTrue(matches('/home/michael/foo'))
             with patch('os.path.isdir', lambda path: False):
@@ -199,7 +199,7 @@ data/**
                 self.assertTrue(matches('/home/michael/foo/bar.txt'))
 
     def test_negated_directory_only(self):
-        matches = _parse_gitignore_string('**\n!foo/', fake_base_dir='/home/michael')
+        matches = _parse_gitignore_string('**\n!foo/', fake_base_dir='/home/michael', honor_directory_only=True)
         with patch('os.path.exists', lambda path: True):
             with patch('os.path.isdir', lambda path: True):
                 self.assertFalse(matches('/home/michael/foo'))
@@ -214,9 +214,9 @@ data/**
         self.assertFalse(matches(Path('/home/michael/file2')))
 
 
-def _parse_gitignore_string(data: str, fake_base_dir: str = None):
+def _parse_gitignore_string(data: str, fake_base_dir: str = None, honor_directory_only: bool = False):
     with patch('builtins.open', mock_open(read_data=data)):
-        success = parse_gitignore(f'{fake_base_dir}/.gitignore', fake_base_dir)
+        success = parse_gitignore(f'{fake_base_dir}/.gitignore', fake_base_dir, honor_directory_only)
         return success
 
 
