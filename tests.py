@@ -190,23 +190,21 @@ data/**
         self.assertTrue(matches('/home/michael/fiz/foo/bar/buz.txt'))
 
     def test_directory_only(self):
-        with patch('os.path.exists', lambda path: True):
-            matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael', honor_directory_only=True)
-            with patch('os.path.isdir', lambda path: True):
-                self.assertTrue(matches('/home/michael/foo'))
-            with patch('os.path.isdir', lambda path: False):
-                self.assertFalse(matches('/home/michael/foo'))
-                self.assertTrue(matches('/home/michael/foo/bar.txt'))
+        matches = _parse_gitignore_string('foo/', fake_base_dir='/home/michael', honor_directory_only=True)
+        with patch('os.path.isdir', lambda path: True):
+            self.assertTrue(matches('/home/michael/foo'))
+        with patch('os.path.isdir', lambda path: False):
+            self.assertFalse(matches('/home/michael/foo'))
+            self.assertTrue(matches('/home/michael/foo/bar.txt'))
 
     def test_negated_directory_only(self):
         matches = _parse_gitignore_string('**\n!foo/', fake_base_dir='/home/michael', honor_directory_only=True)
-        with patch('os.path.exists', lambda path: True):
-            with patch('os.path.isdir', lambda path: True):
-                self.assertFalse(matches('/home/michael/foo'))
-                self.assertFalse(matches('/home/michael/foo/'))
-            with patch('os.path.isdir', lambda path: False):
-                self.assertTrue(matches('/home/michael/foo'))
-                self.assertFalse(matches('/home/michael/foo/bar.txt'))
+        with patch('os.path.isdir', lambda path: True):
+            self.assertFalse(matches('/home/michael/foo'))
+            self.assertFalse(matches('/home/michael/foo/'))
+        with patch('os.path.isdir', lambda path: False):
+            self.assertTrue(matches('/home/michael/foo'))
+            self.assertFalse(matches('/home/michael/foo/bar.txt'))
 
     def test_supports_path_type_argument(self):
         matches = _parse_gitignore_string('file1\n!file2', fake_base_dir='/home/michael')
