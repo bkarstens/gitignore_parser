@@ -69,7 +69,6 @@ class GitignoreMatch:
     def __call__(self, path: Union[str, Path]) -> bool:
         if isinstance(path, Path):
             path = path.as_posix()
-            print(f'{self.honor_directory_only and os.path.isdir(path) = }')
         if self.honor_directory_only and os.path.isdir(path):
             return self.dir_only_regex.fullmatch(path) is not None
         return self.regex.fullmatch(path) is not None
