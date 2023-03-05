@@ -78,7 +78,6 @@ class GitignoreMatch:
         return f'GitignoreMatch(rules={self.rules!r})'
 
 
-
 # %%
 
 
@@ -120,12 +119,7 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
 
     pending_spaces = ''
 
-    regex_translation = ['']  # should match if path is a file
-    dir_only_regex_translation = ['']  # should match if path is a dir
-
-    def append_translation(regex, dir_only_regex=None):
-        regex_translation.append(regex)
-        dir_only_regex_translation.append(dir_only_regex or regex)
+    regex_translation = ['']
 
     first_separator_index = 0
     index = 0
@@ -134,7 +128,7 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
         # buffer spacing until next loop (aka it's not trailing). Escaped spaces
         # handled in escaped_char section
         if pending_spaces:
-            append_translation(pending_spaces)
+            regex_translation.append(pending_spaces)
             pending_spaces = ''
 
         # only one of these groups won't be an empty string
@@ -145,22 +139,21 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             first_separator_index = first_separator_index or index
             # handle `a/**/b` matching `a/b`
             if regex_translation[-1] == '.*':
-                optional = '' if negation else '?'
-                regex_translation[-1] = '(?:.*/)' + optional
-                dir_only_regex_translation[-1] = '(?:.*/)' + optional
+                is_optional = '' if negation else '?'
+                regex_translation[-1] = '(?:.*/)' + is_optional
             else:
-                append_translation('/')
+                regex_translation.append('/')
 
         elif star_star:
-            append_translation('.*')
+            regex_translation.append('.*')
 
         elif star:
             # An asterisk `*` matches anything except a slash.
-            append_translation('[^/]*')
+            regex_translation.append('[^/]*')
 
         elif question_mark:
             # The character `?` matches any one character except `/`.
-            append_translation('[^/]')
+            regex_translation.append('[^/]')
 
         elif bracket_expression:
             def sub(match: re.Match) -> str:
@@ -172,13 +165,13 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             # both ! and ^ are valid negation in .gitignore but only ^ is interpreted as negation in regex.
             if bracket_regex.startswith('[!'):
                 bracket_regex = '[^' + bracket_regex[2:]
-            append_translation(bracket_regex)
+            regex_translation.append(bracket_regex)
 
         elif escaped_char:
-            append_translation(re.escape(escaped_char[1]))
+            regex_translation.append(re.escape(escaped_char[1]))
 
         elif name_piece:
-            append_translation(re.escape(name_piece))
+            regex_translation.append(re.escape(name_piece))
 
         elif spaces:
             # Trailing spaces are ignored unless they are quoted with backslash (\).
@@ -193,30 +186,38 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             return
     else:
         regex_translation = regex_translation[1:]
-        dir_only_regex_translation = dir_only_regex_translation[1:]
+        dir_only_regex_translation = regex_translation
         # if was whitespace or just a slash
         if not regex_translation or regex_translation == ['/']:
             return
+
         anchored = first_separator_index and first_separator_index != index
         directory_only = regex_translation[-1] == '/'
+
         # Also match potential folder contents
         if regex_translation[-1] == '[^/]*':
-            append_translation('(?:/.*)?')
+            regex_translation.append('(?:/.*)?')
         elif directory_only:
-            dir_only_regex_translation[-1] = '(?:/.*)?'
-            regex_translation[-1] = '/.*'
+            dir_only_regex_translation = regex_translation.copy()
+            dir_only_regex_translation[-1] = '(?:/.*)?'  # used afer verifying path is dir
+            regex_translation[-1] = '/.*'  # assume paths that don't end in slash are files
         else:
-            append_translation('(?:/.*)?')
+            regex_translation.append('(?:/.*)?')
 
         if base_path.endswith('/'):
             base_path = base_path[:-1]
 
-        regex = (re.escape(base_path + '/' if not base_path.endswith('/') and not regex_translation[0].startswith('/') else base_path) +
-                 ('' if anchored else '(?:.*/)?') +
-                 ''.join(regex_translation))
-        dir_only_regex = (re.escape(base_path) +
-                          ('' if anchored else '/(?:.*/)?') +
-                          ''.join(dir_only_regex_translation))
+        if anchored:
+            if regex_translation[0].startswith('/'):
+                anchor = ''
+            else:
+                anchor = '/'
+        else:
+            anchor = '/(?:.*/)?'
+
+        regex          = (re.escape(base_path) + anchor + ''.join(regex_translation))
+        dir_only_regex = (re.escape(base_path) + anchor + ''.join(dir_only_regex_translation))
+
         return IgnoreRule(
             pattern=pattern,
             regex=regex,
