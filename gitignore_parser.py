@@ -21,6 +21,12 @@ GITIGNORE_PATTERN = re.compile(
     re.MULTILINE
 )
 
+# The character `?` matches any one character except `/`.
+QUESTION_MARK_REGEX = '[^/]'
+# An asterisk `*` matches anything except a slash.
+STAR_REGEX = '[^/]*'
+STAR_STAR_REGEX = '.*'
+
 ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 
 # %%
@@ -135,24 +141,22 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             escaped_char, name_piece, spaces, error_stars, error = match.groups()
 
         if separator:
+            # used to determine if the pattern is anchored
             first_separator_index = first_separator_index or index
             # handle `a/**/b` matching `a/b`
-            if regex_translation[-1] == '.*':
+            if regex_translation[-1] == STAR_STAR_REGEX:
+                # `!foo/**/` *needs* to match things with a trailing slash, 
                 is_optional = '' if negation else '?'
                 regex_translation[-1] = '(?:.*/)' + is_optional
             else:
                 regex_translation.append('/')
 
         elif star_star:
-            regex_translation.append('.*')
-
+            regex_translation.append(STAR_STAR_REGEX)
         elif star:
-            # An asterisk `*` matches anything except a slash.
-            regex_translation.append('[^/]*')
-
+            regex_translation.append(STAR_REGEX)
         elif question_mark:
-            # The character `?` matches any one character except `/`.
-            regex_translation.append('[^/]')
+            regex_translation.append(QUESTION_MARK_REGEX)
 
         elif bracket_expression:
             def sub(match: re.Match) -> str:
@@ -173,7 +177,7 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
             regex_translation.append(re.escape(name_piece))
 
         elif spaces:
-            # Trailing spaces are ignored unless they are quoted with backslash (\).
+            # Trailing spaces are ignored unless they are quoted with backslash, which is handled by the escaped_char section
             pending_spaces = spaces
             index -= 1
             continue
@@ -194,7 +198,7 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
         directory_only = regex_translation[-1] == '/'
 
         # Also match potential folder contents
-        if regex_translation[-1] == '[^/]*':
+        if regex_translation[-1] == STAR_REGEX:
             regex_translation.append('(?:/.*)?')
         elif directory_only:
             dir_only_regex_translation = regex_translation.copy()
@@ -214,8 +218,8 @@ def rule_from_pattern(pattern, base_path, source: Tuple[str, int] = ('Unknown', 
         else:
             anchor = '/(?:.*/)?'
 
-        regex          = (re.escape(base_path) + anchor + ''.join(regex_translation))
-        dir_only_regex = (re.escape(base_path) + anchor + ''.join(dir_only_regex_translation))
+        regex          = re.escape(base_path) + anchor + ''.join(regex_translation)
+        dir_only_regex = re.escape(base_path) + anchor + ''.join(dir_only_regex_translation)
 
         return IgnoreRule(
             pattern=pattern,
