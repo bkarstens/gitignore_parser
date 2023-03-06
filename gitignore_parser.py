@@ -142,7 +142,7 @@ def parse_gitignore(gitignore_path: Union[str, Path],
                     honor_directory_only: bool = False
                     ) -> Callable[[Union[str, Path]], bool]:
     """Parse a gitignore file."""
-    with open(gitignore_path) as gitignore_file:
+    with open(gitignore_path, encoding='utf-8') as gitignore_file:
         gitignore_content = gitignore_file.read()
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir,
                                  str(gitignore_path), honor_directory_only)
@@ -210,7 +210,7 @@ def rule_from_pattern(pattern,
          name_piece,
          spaces,
          error_stars,
-         error) = match.groups()
+         _) = match.groups()
 
         if separator:
             # used to determine if the pattern is anchored
@@ -258,58 +258,56 @@ def rule_from_pattern(pattern,
             continue
         elif error_stars:
             logging.error(
-                f'error from {source[0]} on line {source[1]}\n'
-                f'{pattern}\n'
-                f'{" " * match.start()}{"^" * len(match.group(0))}')
+                'error from %s on line %s\n%s\n%s%s', source[0], source[1],
+                pattern, " " * match.start(), "^" * len(match.group(0)))
             return
         else:
             logging.error(
-                f'error from {source[0]} on line {source[1]}\n'
-                f'{pattern}')
+                'error from %s on line %s\n%s', source[0], source[1],
+                pattern)
             return
+    regex_translation = regex_translation[1:]
+    dir_only_regex_translation = regex_translation
+    # if was whitespace or just a slash
+    if not regex_translation or regex_translation == ['/']:
+        return
+
+    anchored = first_separator_index and first_separator_index != index
+    directory_only = regex_translation[-1] == '/'
+
+    # Also match potential folder contents
+    if regex_translation[-1] == STAR_REGEX:
+        regex_translation.append('(?:/.*)?')
+    elif directory_only:
+        dir_only_regex_translation = regex_translation.copy()
+        # used after verifying path is dir
+        dir_only_regex_translation[-1] = '(?:/.*)?'
+        # assume paths that don't end in slash are files
+        regex_translation[-1] = '/.*'
     else:
-        regex_translation = regex_translation[1:]
-        dir_only_regex_translation = regex_translation
-        # if was whitespace or just a slash
-        if not regex_translation or regex_translation == ['/']:
-            return
+        regex_translation.append('(?:/.*)?')
 
-        anchored = first_separator_index and first_separator_index != index
-        directory_only = regex_translation[-1] == '/'
+    if base_path.endswith('/'):
+        base_path = base_path[:-1]
 
-        # Also match potential folder contents
-        if regex_translation[-1] == STAR_REGEX:
-            regex_translation.append('(?:/.*)?')
-        elif directory_only:
-            dir_only_regex_translation = regex_translation.copy()
-            # used after verifying path is dir
-            dir_only_regex_translation[-1] = '(?:/.*)?'
-            # assume paths that don't end in slash are files
-            regex_translation[-1] = '/.*'
+    if anchored:
+        if regex_translation[0].startswith('/'):
+            anchor = ''
         else:
-            regex_translation.append('(?:/.*)?')
+            anchor = '/'
+    else:
+        anchor = '/(?:.*/)?'
 
-        if base_path.endswith('/'):
-            base_path = base_path[:-1]
+    regex = re.escape(base_path) + anchor + ''.join(regex_translation)
+    dir_only_regex = (re.escape(base_path) + anchor +
+                      ''.join(dir_only_regex_translation))
 
-        if anchored:
-            if regex_translation[0].startswith('/'):
-                anchor = ''
-            else:
-                anchor = '/'
-        else:
-            anchor = '/(?:.*/)?'
-
-        regex = re.escape(base_path) + anchor + ''.join(regex_translation)
-        dir_only_regex = (re.escape(base_path) + anchor +
-                          ''.join(dir_only_regex_translation))
-
-        return IgnoreRule(
-            pattern=pattern,
-            regex=regex,
-            dir_only_regex=dir_only_regex,
-            negation=negation,
-            directory_only=directory_only,
-            anchored=anchored,
-            base_path=base_path,
-            source=source)
+    return IgnoreRule(
+        pattern=pattern,
+        regex=regex,
+        dir_only_regex=dir_only_regex,
+        negation=negation,
+        directory_only=directory_only,
+        anchored=anchored,
+        base_path=base_path,
+        source=source)
