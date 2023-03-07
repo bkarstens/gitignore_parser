@@ -1,6 +1,6 @@
 """Gitignore parser for Python."""
 import re
-from typing import Callable, Union, List, Tuple, Iterable, overload
+from typing import Callable, Union, List, Tuple, Iterable, overload, Generator
 from pathlib import Path
 import os.path
 import collections
@@ -94,27 +94,27 @@ class GitignoreMatch:
         """
         self.rules = rules
         pattern = ''
-        pattern_dir_only = ''
+        dir_only_pattern = ''
         self.honor_directory_only = honor_directory_only
         for rule in rules:
             if rule.negation:
                 # $ needed for correct negated dir-only pattern. ex:`!my_dir/`
                 if pattern:
                     pattern = f'(?!{rule.regex}$)(?:{pattern})'
-                    pattern_dir_only = (
+                    dir_only_pattern = (
                         f'(?!{rule.dir_only_regex}$)'f'(?:{pattern})')
             else:
                 if pattern:
                     pattern = f'{pattern}|{rule.regex}'
-                    pattern_dir_only = (
-                        f'{pattern_dir_only}|{rule.dir_only_regex}')
+                    dir_only_pattern = (
+                        f'{dir_only_pattern}|{rule.dir_only_regex}')
                 else:
                     pattern = rule.regex
-                    pattern_dir_only = rule.dir_only_regex
+                    dir_only_pattern = rule.dir_only_regex
         self.regex = re.compile(pattern)
-        self.dir_only_regex = re.compile(pattern_dir_only)
+        self.dir_only_regex = re.compile(dir_only_pattern)
 
-    def _call(self, path: str) -> bool:
+    def _call(self, path: Union[str, Path]) -> bool:
         """Check if given path should be ignored.
 
         Args:
@@ -141,32 +141,50 @@ class GitignoreMatch:
         """
 
     @overload
-    def __call__(self, paths: Iterable[Union[str, Path]]) -> List[str]:
+    def __call__(self,
+                 paths: Iterable[Union[str, Path]]) -> List[Union[str, Path]]:
         """Check if the given paths should be ignored.
 
         Args:
-            paths (Iterable[str | Path]): the paths to be checked
+            paths (Iterable[str | Path]): the paths to be checked.
 
         Returns:
-            List[str]: a list of the ignored paths
+            list[str | Path]: a list of the ignored paths.
         """
 
     def __call__(self,
                  path_or_paths: Union[str, Path, Iterable[Union[str, Path]]]
-                 ) -> Union[bool, List[str]]:
+                 ) -> Union[bool, List[Union[str, Path]]]:
         """Check if the given path or paths should be ignored.
 
         Args:
-            path_or_paths (Union[str, Path, Iterable[Union[str, Path]]]): the
-            path or paths to be checked
+            path_or_paths (str | Path | Iterable[str | Path]): the
+            path or paths to be checked.
 
         Returns:
-            Union[bool, List[str]]: if the path is ignored, or the list of
-            ignored paths
+            bool | list[str | Path]: if the path is ignored, or the
+            list of ignored paths.
         """
         if isinstance(path_or_paths, (str, Path)):
             return self._call(path_or_paths)
         return [path for path in path_or_paths if self._call(path)]
+
+    match = __call__
+
+    def match_iter(self,
+                   paths: Iterable[Union[str, Path]]
+                   ) -> Generator[Union[str, Path], None, None]:
+        """Check if the given paths should be ignored [Generator].
+
+        Args:
+            paths (Iterable[str | Path]): The paths to be checked.
+
+        Yields:
+            Generator[str | Path, None, None]: Each matching path.
+        """
+        for path in paths:
+            if self._call(path):
+                yield path
 
     def __repr__(self) -> str:
         """Return string representation (developer friendly) of the rules."""
@@ -188,7 +206,7 @@ def parse_gitignore(gitignore_path: Union[str, Path],
 
 
 def parse_gitignore_lines(gitignore_lines: List[str],
-                          base_dir: str = '', source='',
+                          base_dir: str, source='',
                           honor_directory_only: bool = False
                           ) -> Callable[[Union[str, Path]], bool]:
     """Parse a list of lines matching gitignore syntax."""
@@ -205,7 +223,7 @@ def parse_gitignore_lines(gitignore_lines: List[str],
 def rule_from_pattern(pattern,
                       base_path,
                       source: Tuple[str, int] = ('Unknown', 0)
-                      ) -> IgnoreRule:
+                      ) -> Union[IgnoreRule, None]:
     """Generate an IgnoreRule object from given pattern.
 
     Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
@@ -226,7 +244,7 @@ def rule_from_pattern(pattern,
 
     pending_spaces = ''
 
-    regex_translation = ['']
+    parts = ['']
 
     first_separator_index = 0
     index = 0
@@ -236,7 +254,7 @@ def rule_from_pattern(pattern,
         # buffer spacing until next loop (aka it's not trailing). Escaped
         # spaces handled in escaped_char section
         if pending_spaces:
-            regex_translation.append(pending_spaces)
+            parts.append(pending_spaces)
             pending_spaces = ''
 
         # only one of these groups won't be an empty string
@@ -255,19 +273,19 @@ def rule_from_pattern(pattern,
             # used to determine if the pattern is anchored
             first_separator_index = first_separator_index or index
             # handle `a/**/b` matching `a/b`
-            if regex_translation[-1] == STAR_STAR_REGEX:
+            if parts[-1] == STAR_STAR_REGEX:
                 # `!foo/**/` *needs* to match things with a trailing slash,
                 is_optional = '' if negation else '?'
-                regex_translation[-1] = '(?:.*/)' + is_optional
+                parts[-1] = '(?:.*/)' + is_optional
             else:
-                regex_translation.append('/')
+                parts.append('/')
 
         elif star_star:
-            regex_translation.append(STAR_STAR_REGEX)
+            parts.append(STAR_STAR_REGEX)
         elif star:
-            regex_translation.append(STAR_REGEX)
+            parts.append(STAR_REGEX)
         elif question_mark:
-            regex_translation.append(QUESTION_MARK_REGEX)
+            parts.append(QUESTION_MARK_REGEX)
 
         elif bracket_expression:
             def sub(match: re.Match) -> str:
@@ -281,13 +299,13 @@ def rule_from_pattern(pattern,
             # but only ^ is interpreted as negation in regex.
             if bracket_regex.startswith('[!'):
                 bracket_regex = '[^' + bracket_regex[2:]
-            regex_translation.append(bracket_regex)
+            parts.append(bracket_regex)
 
         elif escaped_char:
-            regex_translation.append(re.escape(escaped_char[1]))
+            parts.append(re.escape(escaped_char[1]))
 
         elif name_piece:
-            regex_translation.append(re.escape(name_piece))
+            parts.append(re.escape(name_piece))
 
         elif spaces:
             # Trailing spaces are ignored unless they are quoted with
@@ -305,47 +323,28 @@ def rule_from_pattern(pattern,
                 'error from %s on line %s\n%s', source[0], source[1],
                 pattern)
             return
-    regex_translation = regex_translation[1:]
-    special_dir_only_ending = None
+    parts = parts[1:]
+    dir_only_ending = None
     # if was whitespace or just a slash
-    if not regex_translation or regex_translation == ['/']:
+    if not parts or parts == ['/']:
         return
 
     anchored = first_separator_index and first_separator_index != index
-    directory_only = regex_translation[-1] == '/'
+    directory_only = parts[-1] == '/'
 
     # Also match potential folder contents
-    if regex_translation[-1] == STAR_REGEX:
-        regex_translation.append('(?:/.*)?')
+    if parts[-1] == STAR_REGEX:
+        parts.append('(?:/.*)?')
     elif directory_only:
         # used after verifying path is dir
-        special_dir_only_ending = '(?:/.*)?'
+        dir_only_ending = '(?:/.*)?'
         # assume paths that don't end in slash are files
-        regex_translation[-1] = '/.*'
+        parts[-1] = '/.*'
     else:
-        regex_translation.append('(?:/.*)?')
+        parts.append('(?:/.*)?')
 
-    if base_path.endswith('/'):
-        base_path = base_path[:-1]
-
-    # handle no base_path
-    leading_slash = '/' if base_path else ''
-
-    anchor = leading_slash if anchored else leading_slash + '(?:.*/)?'
-
-    # leading slash handled by anchor
-    if regex_translation[0].startswith('/'):
-        regex_translation[0] = regex_translation[0][1:]
-
-    partial_regex = (re.escape(base_path) + anchor +
-                     ''.join(regex_translation[:-1]))
-
-    regex = partial_regex + regex_translation[-1]
-
-    if special_dir_only_ending:
-        dir_only_regex = partial_regex + special_dir_only_ending
-    else:
-        dir_only_regex = regex
+    regex, dir_only_regex = _build_regex(
+        base_path, parts, dir_only_ending, anchored)
 
     return IgnoreRule(
         pattern=pattern,
@@ -356,3 +355,28 @@ def rule_from_pattern(pattern,
         anchored=anchored,
         base_path=base_path,
         source=source)
+
+
+def _build_regex(base_path: str,
+                 parts: List[str],
+                 dir_only_ending: Union[str, None],
+                 anchored: bool
+                 ) -> Tuple[str, str]:
+
+    # leading slash handled by anchor
+    if base_path.endswith('/'):
+        base_path = base_path[:-1]
+
+    anchor = '/' if anchored else '/(?:.*/)?'
+
+    # leading slash handled by anchor
+    if parts[0].startswith('/'):
+        parts[0] = parts[0][1:]
+
+    partial_regex = re.escape(base_path) + anchor + ''.join(parts[:-1])
+    regex = partial_regex + parts[-1]
+
+    if dir_only_ending:
+        return regex, partial_regex + dir_only_ending
+    else:
+        return regex, regex
