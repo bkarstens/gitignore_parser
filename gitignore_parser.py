@@ -1,10 +1,10 @@
 """Gitignore parser for Python."""
-import re
-from typing import Callable, Union, List, Tuple, Iterable, overload, Generator
-from pathlib import Path
-import os.path
 import collections
 import logging
+import os.path
+import re
+from pathlib import Path
+from typing import Callable, Generator, Iterable, List, Tuple, Union, overload
 
 __all__ = [
     'IgnoreRule',
