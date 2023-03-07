@@ -188,7 +188,7 @@ def parse_gitignore(gitignore_path: Union[str, Path],
 
 
 def parse_gitignore_lines(gitignore_lines: List[str],
-                          base_dir: str, source='',
+                          base_dir: str = '', source='',
                           honor_directory_only: bool = False
                           ) -> Callable[[Union[str, Path]], bool]:
     """Parse a list of lines matching gitignore syntax."""
@@ -306,7 +306,7 @@ def rule_from_pattern(pattern,
                 pattern)
             return
     regex_translation = regex_translation[1:]
-    dir_only_regex_translation = regex_translation
+    special_dir_only_ending = None
     # if was whitespace or just a slash
     if not regex_translation or regex_translation == ['/']:
         return
@@ -318,9 +318,8 @@ def rule_from_pattern(pattern,
     if regex_translation[-1] == STAR_REGEX:
         regex_translation.append('(?:/.*)?')
     elif directory_only:
-        dir_only_regex_translation = regex_translation.copy()
         # used after verifying path is dir
-        dir_only_regex_translation[-1] = '(?:/.*)?'
+        special_dir_only_ending = '(?:/.*)?'
         # assume paths that don't end in slash are files
         regex_translation[-1] = '/.*'
     else:
@@ -329,17 +328,24 @@ def rule_from_pattern(pattern,
     if base_path.endswith('/'):
         base_path = base_path[:-1]
 
-    if anchored:
-        if regex_translation[0].startswith('/'):
-            anchor = ''
-        else:
-            anchor = '/'
-    else:
-        anchor = '/(?:.*/)?'
+    # handle no base_path
+    leading_slash = '/' if base_path else ''
 
-    regex = re.escape(base_path) + anchor + ''.join(regex_translation)
-    dir_only_regex = (re.escape(base_path) + anchor +
-                      ''.join(dir_only_regex_translation))
+    anchor = leading_slash if anchored else leading_slash + '(?:.*/)?'
+
+    # leading slash handled by anchor
+    if regex_translation[0].startswith('/'):
+        regex_translation[0] = regex_translation[0][1:]
+
+    partial_regex = (re.escape(base_path) + anchor +
+                     ''.join(regex_translation[:-1]))
+
+    regex = partial_regex + regex_translation[-1]
+
+    if special_dir_only_ending:
+        dir_only_regex = partial_regex + special_dir_only_ending
+    else:
+        dir_only_regex = regex
 
     return IgnoreRule(
         pattern=pattern,
