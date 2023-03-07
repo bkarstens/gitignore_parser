@@ -1,6 +1,6 @@
 """Gitignore parser for Python."""
 import re
-from typing import Callable, Union, List, Tuple
+from typing import Callable, Union, List, Tuple, Iterable, overload
 from pathlib import Path
 import os.path
 import collections
@@ -114,20 +114,59 @@ class GitignoreMatch:
         self.regex = re.compile(pattern)
         self.dir_only_regex = re.compile(pattern_dir_only)
 
-    def __call__(self, path: Union[str, Path]) -> bool:
+    def _call(self, path: str) -> bool:
         """Check if given path should be ignored.
 
         Args:
-            path (Union[str, Path]): The path to check.
+            path (str | Path): The path to check.
 
         Returns:
-            bool: True if path should be ignored, else False
+            bool: True if path should be ignored, else False.
         """
         if isinstance(path, Path):
             path = path.as_posix()
         if self.honor_directory_only and os.path.isdir(path):
             return self.dir_only_regex.fullmatch(path) is not None
         return self.regex.fullmatch(path) is not None
+
+    @overload
+    def __call__(self, path: Union[str, Path]) -> bool:
+        """Check if given path should be ignored.
+
+        Args:
+            path (str | Path): The path to check.
+
+        Returns:
+            bool: True if path should be ignored, else False.
+        """
+
+    @overload
+    def __call__(self, paths: Iterable[Union[str, Path]]) -> List[str]:
+        """Check if the given paths should be ignored.
+
+        Args:
+            paths (Iterable[str | Path]): the paths to be checked
+
+        Returns:
+            List[str]: a list of the ignored paths
+        """
+
+    def __call__(self,
+                 path_or_paths: Union[str, Path, Iterable[Union[str, Path]]]
+                 ) -> Union[bool, List[str]]:
+        """Check if the given path or paths should be ignored.
+
+        Args:
+            path_or_paths (Union[str, Path, Iterable[Union[str, Path]]]): the
+            path or paths to be checked
+
+        Returns:
+            Union[bool, List[str]]: if the path is ignored, or the list of
+            ignored paths
+        """
+        if isinstance(path_or_paths, (str, Path)):
+            return self._call(path_or_paths)
+        return [path for path in path_or_paths if self._call(path)]
 
     def __repr__(self) -> str:
         """Return string representation (developer friendly) of the rules."""
