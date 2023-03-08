@@ -26,7 +26,7 @@ Then:
     True
     >>> matches('/home/michael/project/dir/main.pyc')
     True
-    >>> matches('/home/michael/project/__pycache__')
+    >>> matches('/home/michael/project/__pycache__/')
     True
 
 ## Motivation
@@ -44,5 +44,5 @@ It will save us both time and unnecessary effort.
 
 ## Attribution
 
-The implementation is based on https://github.com/snark/ignorance/ by
-Steve Cook.
+The implementation is based on https://github.com/mherrmann/gitignore_parser/ by
+Michael Herrmann.
