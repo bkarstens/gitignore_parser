@@ -44,5 +44,5 @@ It will save us both time and unnecessary effort.
 
 ## Attribution
 
-The implementation is based on https://github.com/mherrmann/gitignore_parser/ by
+The API is based on https://github.com/mherrmann/gitignore_parser/ by
 Michael Herrmann.

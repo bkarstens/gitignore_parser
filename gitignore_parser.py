@@ -59,7 +59,7 @@ ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 # %%
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class IgnoreRule:
     """Class representing a single rule parsed from a .ignore file."""
 
