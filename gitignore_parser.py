@@ -63,14 +63,14 @@ ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 class IgnoreRule:
     """Class representing a single rule parsed from a .ignore file."""
 
-    pattern:            str  # the .gitignore pattern
+    pattern: str             # the .gitignore pattern
     source: Tuple[str, int]  # (file, line), for reporting
 
-    regex:              str  # the regex string of the rule
-    dir_only_regex:     str  # the regex to use if the comparing path is a dir
+    regex: str               # the regex string of the rule
+    dir_only_regex: str      # the regex to use if the comparing path is a dir
 
-    negation:          bool  # if the rule is a negation of previous rules
-    directory_only:    bool  # if the pattern has special regex when dir
+    negation: bool           # if the rule is a negation of previous rules
+    directory_only: bool     # if the pattern has special regex when dir
 
     def __str__(self):
         """Return string representation (user friendly) of the rule."""
@@ -125,8 +125,7 @@ class GitignoreMatcher:
         Returns:
             bool: True if path should be ignored, else False.
         """
-        if isinstance(path, Path):
-            path = path.as_posix()
+        path = str(path).replace(os.sep, '/')
         if self.honor_directory_only and os.path.isdir(path):
             return self.dir_only_regex.fullmatch(path) is not None
         return self.regex.fullmatch(path) is not None
@@ -202,7 +201,7 @@ def parse_gitignore(gitignore_path: Union[str, Path],
                     ) -> Callable[[Union[str, Path]], bool]:
     """Parse a gitignore file."""
     if base_dir is None:
-        base_dir = os.path.dirname(gitignore_path)
+        base_dir = Path(gitignore_path).parent.as_posix()
     with open(gitignore_path, encoding='utf-8') as gitignore_file:
         gitignore_content = gitignore_file.read()
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir,
@@ -214,6 +213,7 @@ def parse_gitignore_lines(gitignore_lines: List[str],
                           honor_directory_only: bool = False
                           ) -> Callable[[Union[str, Path]], bool]:
     """Parse a list of lines matching gitignore syntax."""
+    base_dir = Path(base_dir).as_posix()
     generator = _rule_generator(gitignore_lines, base_dir, source)
 
     return GitignoreMatcher(generator, honor_directory_only)
@@ -229,8 +229,8 @@ def _rule_generator(gitignore_lines: List[str],
             yield ignore_rule
 
 
-def rule_from_pattern(pattern,
-                      base_path,
+def rule_from_pattern(pattern: str,
+                      base_path: Union[str, Path],
                       source: Tuple[str, int] = ('Unknown', 0)
                       ) -> Union[IgnoreRule, None]:
     """Generate an IgnoreRule object from given pattern.
