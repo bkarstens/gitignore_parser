@@ -102,7 +102,7 @@ class GitignoreMatcher:
                 if pattern:
                     pattern = f'(?!{rule.regex}$)(?:{pattern})'
                     dir_only_pattern = (
-                        f'(?!{rule.dir_only_regex}$)'f'(?:{pattern})')
+                        f'(?!{rule.dir_only_regex}$)'f'(?:{dir_only_pattern})')
                 # negation as the first rule(s) does nothing. no else here
             elif pattern:
                 pattern = f'{pattern}|{rule.regex}'
@@ -201,7 +201,7 @@ def parse_gitignore(gitignore_path: Union[str, Path],
                     ) -> Callable[[Union[str, Path]], bool]:
     """Parse a gitignore file."""
     if base_dir is None:
-        base_dir = Path(gitignore_path).parent.as_posix()
+        base_dir = Path(gitignore_path).parent
     with open(gitignore_path, encoding='utf-8') as gitignore_file:
         gitignore_content = gitignore_file.read()
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir,
@@ -213,7 +213,6 @@ def parse_gitignore_lines(gitignore_lines: List[str],
                           honor_directory_only: bool = False
                           ) -> Callable[[Union[str, Path]], bool]:
     """Parse a list of lines matching gitignore syntax."""
-    base_dir = Path(base_dir).as_posix()
     generator = _rule_generator(gitignore_lines, base_dir, source)
 
     return GitignoreMatcher(generator, honor_directory_only)
@@ -242,6 +241,8 @@ def rule_from_pattern(pattern: str,
     Because git allows for nested .gitignore files, a base_path value
     is required for correct behavior. The base path should be absolute.
     """
+    base_path = str(base_path).replace(os.sep, '/')
+
     # A blank line matches no files, so it can serve as a separator for
     # readability.
     # A line starting with `#` serves as a comment. Put a backslash (\) in
