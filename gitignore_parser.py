@@ -197,10 +197,12 @@ class GitignoreMatcher:
 
 
 def parse_gitignore(gitignore_path: Union[str, Path],
-                    base_dir: str,
+                    base_dir: str = None,
                     honor_directory_only: bool = False
                     ) -> Callable[[Union[str, Path]], bool]:
     """Parse a gitignore file."""
+    if base_dir is None:
+        base_dir = os.path.dirname(gitignore_path)
     with open(gitignore_path, encoding='utf-8') as gitignore_file:
         gitignore_content = gitignore_file.read()
     return parse_gitignore_lines(gitignore_content.splitlines(), base_dir,
