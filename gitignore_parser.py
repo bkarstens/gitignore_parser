@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Generator, Iterable, List, Tuple, Union, overload
+from typing import Generator, Iterable, List, Tuple, Union, overload
 
 __all__ = [
     'IgnoreRule',
@@ -54,6 +54,7 @@ QUESTION_MARK_REGEX = '[^/]'
 # An asterisk `*` matches anything except a slash.
 STAR_REGEX = '[^/]*'
 STAR_STAR_REGEX = '.*'
+ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 
 
 # %%
@@ -92,25 +93,25 @@ class GitignoreMatcher:
             honor_directory_only (bool): False assumes paths not ending with a
             slash are not dirs. True verifies if they are dirs
         """
-        self.rules = rules
-        pattern = ''
-        dir_only_pattern = ''
-        dir_only_rules = False
+        rules = iter(rules)
+        # negation as the first rule(s) does nothing. skip them
+        first_rule = next(rule for rule in rules if not rule.negation)
+        pattern = first_rule.regex
+        dir_only_pattern = first_rule.dir_only_regex
+        dir_only_rules = first_rule.directory_only
+        self.rules = [first_rule]
+
         for rule in rules:
-            dir_only_rules = dir_only_rules or rule.directory_only
+            self.rules.append(rule)
+            dir_only_rules |= rule.directory_only
             if rule.negation:
-                if pattern:
-                    # $ needed for correct dir only negation
-                    pattern = f'(?!{rule.regex}$)(?:{pattern})'
-                    dir_only_pattern = (f'(?!{rule.dir_only_regex}$)'
-                                        f'(?:{dir_only_pattern})')
-                # negation as the first rule(s) does nothing. no else here
-            elif pattern:
+                # $ needed for correct dir only negation
+                pattern = f'(?!{rule.regex}$)(?:{pattern})'
+                dir_only_pattern = (f'(?!{rule.dir_only_regex}$)'
+                                    f'(?:{dir_only_pattern})')
+            else:
                 pattern = f'{pattern}|{rule.regex}'
                 dir_only_pattern = f'{dir_only_pattern}|{rule.dir_only_regex}'
-            else:
-                pattern = rule.regex
-                dir_only_pattern = rule.dir_only_regex
 
         self.regex = re.compile(pattern)
         self.honor_directory_only = honor_directory_only and dir_only_rules
@@ -199,27 +200,27 @@ class GitignoreMatcher:
 def parse_gitignore(gitignore_path: Union[str, Path],
                     base_dir: Union[str, Path] = '',
                     honor_directory_only: bool = False
-                    ) -> Callable[[Union[str, Path]], bool]:
+                    ) -> GitignoreMatcher:
     """Parse a gitignore file."""
     if not base_dir:
         base_dir = Path(gitignore_path).parent
     with open(gitignore_path, encoding='utf-8') as gitignore_file:
-        gitignore_content = gitignore_file.read()
-    return parse_gitignore_lines(gitignore_content.splitlines(), base_dir,
-                                 str(gitignore_path), honor_directory_only)
+        generator = _rule_generator(
+            gitignore_file, base_dir, str(gitignore_path))
+        return GitignoreMatcher(generator, honor_directory_only)
 
 
 def parse_gitignore_lines(gitignore_lines: List[str],
                           base_dir: Union[str, Path], source: str = '',
                           honor_directory_only: bool = False
-                          ) -> Callable[[Union[str, Path]], bool]:
+                          ) -> GitignoreMatcher:
     """Parse a list of lines matching gitignore syntax."""
     generator = _rule_generator(gitignore_lines, base_dir, source)
 
     return GitignoreMatcher(generator, honor_directory_only)
 
 
-def _rule_generator(gitignore_lines: List[str],
+def _rule_generator(gitignore_lines: Iterable[str],
                     base_dir: Union[str, Path], source: str
                     ) -> Generator[IgnoreRule, None, None]:
     for line_number, line in enumerate(gitignore_lines, start=1):
@@ -355,9 +356,6 @@ def rule_from_pattern(pattern: str,
         negation=negation,
         directory_only=directory_only,
         source=source)
-
-
-ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 
 
 def _translate_brackets(bracket_expression: str) -> str:
