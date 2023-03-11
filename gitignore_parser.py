@@ -185,9 +185,7 @@ class GitignoreMatcher:
         Yields:
             Generator[str | Path, None, None]: Each matching path.
         """
-        for path in paths:
-            if self._call(path):
-                yield path
+        return (path for path in paths if self._call(path))
 
     def __repr__(self) -> str:
         """Return string representation (developer friendly) of the rules."""
