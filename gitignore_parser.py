@@ -49,14 +49,6 @@ GITIGNORE_PATTERN = re.compile(
     re.MULTILINE
 )
 
-# The character `?` matches any one character except `/`.
-QUESTION_MARK_REGEX = '[^/]'
-# An asterisk `*` matches anything except a slash.
-STAR_REGEX = '[^/]*'
-STAR_STAR_REGEX = '.*'
-ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
-
-
 # %%
 
 
@@ -77,6 +69,14 @@ class IgnoreRule:
         """Return string representation (user friendly) of the rule."""
         return self.pattern
 
+
+# The character `?` matches any one character except `/`.
+QUESTION_MARK_REGEX = '[^/]'
+# An asterisk `*` matches anything except a slash.
+STAR_REGEX = '[^/]*'
+STAR_STAR_REGEX = '.*'
+ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
+MATCH_NOTHING = IgnoreRule('', ('None', 0), 'a^', 'a^', False, False)
 # %%
 
 
@@ -95,7 +95,8 @@ class GitignoreMatcher:
         """
         rules = iter(rules)
         # negation as the first rule(s) does nothing. skip them
-        first_rule = next(rule for rule in rules if not rule.negation)
+        first_rule = next(
+            (rule for rule in rules if not rule.negation), MATCH_NOTHING)
         pattern = first_rule.regex
         dir_only_pattern = first_rule.dir_only_regex
         dir_only_rules = first_rule.directory_only
