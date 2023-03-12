@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Iterable, List, Tuple, Union, overload
+from typing import Generator, Iterable, List, Optional, Tuple, Union, overload
 
 __all__ = [
     'IgnoreRule',
@@ -232,7 +232,7 @@ def _rule_generator(gitignore_lines: Iterable[str],
 def rule_from_pattern(pattern: str,
                       base_path: Union[str, Path],
                       source: Tuple[str, int] = ('Unknown', 0)
-                      ) -> Union[IgnoreRule, None]:
+                      ) -> Optional[IgnoreRule]:
     """Generate an IgnoreRule object from given pattern.
 
     Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",

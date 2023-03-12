@@ -26,6 +26,13 @@ class Test(TestCase):
         self.assertTrue(matches('/home/michael/dir/main.pyc'))
         self.assertTrue(matches('/home/michael/__pycache__/'))
 
+    def test_empty(self):
+        matches = parse_gitignore_lines([],base_dir='/home/michael')
+        self.assertFalse(matches('/home/michael/main.py'))
+        self.assertFalse(matches('/home/michael/main.pyc'))
+        self.assertFalse(matches('/home/michael/dir/main.pyc'))
+        self.assertFalse(matches('/home/michael/__pycache__/'))
+
     def test_simple_many(self):
         matches = parse_gitignore_lines(['__pycache__/\n', '*.py[cod]'],
                                         base_dir='/home/michael')
