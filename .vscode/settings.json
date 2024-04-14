@@ -8,9 +8,5 @@
     ],
     "python.testing.pytestEnabled": false,
     "python.testing.unittestEnabled": true,
-    "python.linting.enabled": true,
-    "python.linting.flake8Enabled": true,
-    "python.linting.pydocstyleEnabled": true,
-    "python.linting.pycodestyleEnabled": true,
-    "python.linting.pylintEnabled": true,
+    "python.analysis.typeCheckingMode": "basic",
 }
