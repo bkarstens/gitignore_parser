@@ -75,7 +75,6 @@ QUESTION_MARK_REGEX = '[^/]'
 # An asterisk `*` matches anything except a slash.
 STAR_REGEX = '[^/]*'
 STAR_STAR_REGEX = '.*'
-ESCAPED_CHAR_PATTERN = re.compile(r'\\(.)')
 MATCH_NOTHING = IgnoreRule('', ('None', 0), 'a^', 'a^', False, False)
 # %%
 
@@ -194,7 +193,8 @@ class GitignoreMatcher:
 
 
 # %%
-
+def parse_gitignore_file(*args, **kwargs) -> GitignoreMatcher:
+    return parse_gitignore(*args, **kwargs)
 
 def parse_gitignore(gitignore_path: Union[str, Path],
                     base_dir: Union[str, Path] = '',
@@ -330,6 +330,10 @@ def rule_from_pattern(pattern: str,
     if not parts or parts == ['/']:
         return None
 
+    # special pattern under git?
+    if parts == [STAR_REGEX, '/'] and negation:
+        return None
+
     anchored = first_separator_index not in (None, index)
     directory_only = parts[-1] == '/'
     dir_only_ending = None
@@ -357,8 +361,9 @@ def rule_from_pattern(pattern: str,
         source=source)
 
 
+ESCAPED_CHAR_OR_SLASH_PATTERN = re.compile(r'\\(.)|([\\/])')
 def _translate_brackets(bracket_expression: str) -> str:
-    bracket_regex = ESCAPED_CHAR_PATTERN.sub(_unescape, bracket_expression)
+    bracket_regex = ESCAPED_CHAR_OR_SLASH_PATTERN.sub(_unescape, bracket_expression)
     # both ! and ^ are valid negation in .gitignore
     # but only ^ is interpreted as negation in regex.
     if bracket_regex.startswith('[!'):
@@ -367,9 +372,15 @@ def _translate_brackets(bracket_expression: str) -> str:
 
 
 def _unescape(match: re.Match) -> str:
-    # only keep escaping if \\, \-, or \^
+    escaped_char = match.group(1)
+
+    # don't allow path separators in brackets
+    if match.group(2) or escaped_char in r'\/':
+        return ''
+
+    # only keep escaping if \- or \^
     # Otherwise \0 and \d would be wrong
-    if match.group(1) in r'\-^':
+    if match.group(1) in '-^':
         return match.group(0)
     return match.group(1)
 
