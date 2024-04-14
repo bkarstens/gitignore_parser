@@ -13,10 +13,10 @@ __all__ = ["IgnoreRule", "GitignoreMatcher", "parse_gitignore", "parse_gitignore
 GITIGNORE_PATTERN = re.compile(
     # a forward slash
     r"(?P<separator>\/)|"
-    # two asterisks not preceded or followed by an asterisk
-    r"(?P<star_star>(?<!\*)\*\*(?!\*))|"
-    # one asterisk not preceded or followed by an asterisk
-    r"(?P<star>(?<!\*)\*(?!\*))|"
+    # multiple asterisks only next to separators
+    r"(?P<star_star>(?:^|(?<=\/))\*{2,}(?:$|(?=\/)))|"
+    # all other asterisks
+    r"(?P<star>\*+)|"
     # a question mark
     r"(?P<question_mark>\?)|"
     # square brackets around characters
@@ -28,8 +28,6 @@ GITIGNORE_PATTERN = re.compile(
     r"(?P<name_piece>[^ \/\*\?\[\]\n\\]+)|"
     # space characters
     r"(?P<spaces>\s+)|"
-    # 3 or more asterisks
-    r"(?P<error_stars>\*{3,})|"
     # something went wrong; catch all
     r"(?P<error>.+)",
     re.MULTILINE,
@@ -234,7 +232,7 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
             pending_spaces = parts.append(pending_spaces)
 
         # only one of these groups won't be an empty string
-        (separator, star_star, star, question_mark, bracket_expression, escaped_char, name_piece, spaces, error_stars, _) = match.groups()
+        (separator, star_star, star, question_mark, bracket_expression, escaped_char, name_piece, spaces, _) = match.groups()
 
         if separator:
             # used to determine if the pattern is anchored
@@ -242,7 +240,7 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
             # handle `a/**/b` matching `a/b`
             if parts[-1] == STAR_STAR_REGEX:
                 # `!foo/**/` *needs* to match things with a trailing slash
-                parts[-1] = "(?:.*/)" if negation else "(?:.*/)?"
+                parts[-1] = ".*/" if negation else "(?:.*/)?"
             else:
                 parts.append("/")
 
@@ -267,9 +265,6 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
             # Pending spaces don't count.
             index -= 1
             continue
-        elif error_stars:
-            logging.error("error from %s on line %s\n%s\n%s%s", source[0], source[1], pattern, " " * match.start(), "^" * len(match.group(0)))
-            return None
         else:
             logging.error("error from %s on line %s\n%s", source[0], source[1], pattern)
             return None
