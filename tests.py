@@ -21,9 +21,7 @@ def TemporaryRepo(gitignore_content) -> Generator[Tuple[Repo, Path], None, None]
 
 
 class Test(TestCase):
-    def _test_matches_git(
-        self, gitignore_content: Union[str, List[str]], paths: List[str]
-    ):
+    def _test_matches_git(self, gitignore_content: Union[str, List[str]], paths: List[str]):
         if isinstance(gitignore_content, list):
             gitignore_content = "\n".join(gitignore_content)
         with TemporaryRepo(gitignore_content) as (repo, gitignore_path):
@@ -39,27 +37,21 @@ class Test(TestCase):
         self._test_matches_git(ignore_lines, paths)
 
     def test_simple_lines(self):
-        matches = parse_gitignore_lines(
-            ["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael"
-        )
+        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael")
         self.assertFalse(matches("/home/michael/main.py"))
         self.assertTrue(matches("/home/michael/main.pyc"))
         self.assertTrue(matches("/home/michael/dir/main.pyc"))
         self.assertTrue(matches("/home/michael/__pycache__/"))
 
     def test_base_slash(self):
-        matches = parse_gitignore_lines(
-            ["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael/"
-        )
+        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael/")
         self.assertFalse(matches("/home/michael/main.py"))
         self.assertTrue(matches("/home/michael/main.pyc"))
         self.assertTrue(matches("/home/michael/dir/main.pyc"))
         self.assertTrue(matches("/home/michael/__pycache__/"))
 
     def test_generator(self):
-        matches = parse_gitignore_lines(
-            ["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael"
-        )
+        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael")
 
         paths = [
             "/home/michael/main.py",
@@ -72,9 +64,7 @@ class Test(TestCase):
             "/home/michael/dir/main.pyc",
             "/home/michael/__pycache__/",
         ]
-        for path, expected in zip(
-            matches.match_iter(paths), expected_output, strict=True
-        ):
+        for path, expected in zip(matches.match_iter(paths), expected_output, strict=True):
             self.assertEqual(path, expected)
 
     def test_empty(self):
@@ -130,13 +120,7 @@ class Test(TestCase):
         self._test_matches_git(lines, paths)
 
     def test_trailingspaces(self):
-        lines = (
-            "ignoretrailingspace \n"
-            "notignoredspace\\ \n"
-            "partiallyignoredspace\\  \n"
-            "partiallyignoredspace2 \\  \n"
-            "notignoredmultiplespace\\ \\ \\ "
-        )
+        lines = "ignoretrailingspace \n" "notignoredspace\\ \n" "partiallyignoredspace\\  \n" "partiallyignoredspace2 \\  \n" "notignoredmultiplespace\\ \\ \\ "
         paths = [
             "ignoretrailingspace",
             "ignoretrailingspace ",
@@ -200,6 +184,25 @@ class Test(TestCase):
             "foo/hello/Bar",
             "foo/world/Bar",
             "foo/Bar",
+        ]
+        self._test_matches_git(lines, paths)
+
+    def test_extra_separators(self):
+        lines = "foo//Bar"
+        paths = [
+            "foo//hello/Bar",
+            "foo///////world/Bar",
+            "foo//Bar",
+        ]
+        self._test_matches_git(lines, paths)
+
+    def test_more_asterisks_handled_like_single_asterisk(self):
+        """Test that multiple asterisk in a row are treated as a single asterisk."""
+
+        lines = "***a/b\n"
+        paths = [
+            "XYZa/b",
+            "foo/a/b",
         ]
         self._test_matches_git(lines, paths)
 
@@ -374,9 +377,7 @@ foo/barfiz/buz
         self._test_matches_git(lines, paths)
 
     def test_directory_only(self):
-        matches = _parse_gitignore_string(
-            "foo/", fake_base_dir="/home/michael", honor_directory_only=True
-        )
+        matches = _parse_gitignore_string("foo/", fake_base_dir="/home/michael", honor_directory_only=True)
         with patch("os.path.isdir", lambda path: True):
             self.assertTrue(matches("/home/michael/foo"))
         with patch("os.path.isdir", lambda path: False):
@@ -384,9 +385,7 @@ foo/barfiz/buz
             self.assertTrue(matches("/home/michael/foo/bar.txt"))
 
     def test_negated_directory_only(self):
-        matches = _parse_gitignore_string(
-            "**\n!foo/", fake_base_dir="/home/michael", honor_directory_only=True
-        )
+        matches = _parse_gitignore_string("**\n!foo/", fake_base_dir="/home/michael", honor_directory_only=True)
         with patch("os.path.isdir", lambda path: True):
             self.assertFalse(matches("/home/michael/foo"))
             self.assertFalse(matches("/home/michael/foo/"))
@@ -395,9 +394,7 @@ foo/barfiz/buz
             self.assertFalse(matches("/home/michael/foo/bar.txt"))
 
     def test_supports_path_type_argument(self):
-        matches = _parse_gitignore_string(
-            "file1\n!file2", fake_base_dir="/home/michael"
-        )
+        matches = _parse_gitignore_string("file1\n!file2", fake_base_dir="/home/michael")
         self.assertTrue(matches(Path("/home/michael/file1")))
         self.assertFalse(matches(Path("/home/michael/file2")))
 
@@ -420,13 +417,9 @@ foo/barfiz/buz
         self._test_matches_git(lines, paths)
 
 
-def _parse_gitignore_string(
-    data: str, fake_base_dir: str = None, honor_directory_only: bool = False
-):
+def _parse_gitignore_string(data: str, fake_base_dir: str = None, honor_directory_only: bool = False):
     with patch("builtins.open", mock_open(read_data=data)):
-        success = parse_gitignore(
-            f"{fake_base_dir}/.gitignore", fake_base_dir, honor_directory_only
-        )
+        success = parse_gitignore(f"{fake_base_dir}/.gitignore", fake_base_dir, honor_directory_only)
         return success
 
 
