@@ -1,4 +1,5 @@
 """Gitignore parser for Python."""
+
 import logging
 import os
 import re
@@ -6,47 +7,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Iterable, List, Optional, Tuple, Union, overload
 
-__all__ = [
-    'IgnoreRule',
-    'GitignoreMatcher',
-    'parse_gitignore',
-    'parse_gitignore_lines',
-    'rule_from_pattern']
+__all__ = ["IgnoreRule", "GitignoreMatcher", "parse_gitignore", "parse_gitignore_lines", "rule_from_pattern"]
 
 # %%
 GITIGNORE_PATTERN = re.compile(
     # a forward slash
-    r'(?P<separator>\/)|'
-
+    r"(?P<separator>\/)|"
     # two asterisks not preceded or followed by an asterisk
-    r'(?P<star_star>(?<!\*)\*\*(?!\*))|'
-
+    r"(?P<star_star>(?<!\*)\*\*(?!\*))|"
     # one asterisk not preceded or followed by an asterisk
-    r'(?P<star>(?<!\*)\*(?!\*))|'
-
+    r"(?P<star>(?<!\*)\*(?!\*))|"
     # a question mark
-    r'(?P<question_mark>\?)|'
-
+    r"(?P<question_mark>\?)|"
     # square brackets around characters
-    r'(?P<bracket_expression>\[(?:\\.|[^\\])+\])|'
-
+    r"(?P<bracket_expression>\[(?:\\.|[^\\])+\])|"
     # backslash followed by any char. Assuming escaped char.
-    r'(?P<escaped_char>\\.)|'
-
+    r"(?P<escaped_char>\\.)|"
     # not a space, slash, asterisk, question mark, opening or closing square
     # brackets, newline, or backslash
-    r'(?P<name_piece>[^ \/\*\?\[\]\n\\]+)|'
-
+    r"(?P<name_piece>[^ \/\*\?\[\]\n\\]+)|"
     # space characters
-    r'(?P<spaces>\s+)|'
-
+    r"(?P<spaces>\s+)|"
     # 3 or more asterisks
-    r'(?P<error_stars>\*{3,})|'
-
+    r"(?P<error_stars>\*{3,})|"
     # something went wrong; catch all
-    r'(?P<error>.+)',
-
-    re.MULTILINE
+    r"(?P<error>.+)",
+    re.MULTILINE,
 )
 
 # %%
@@ -56,14 +42,14 @@ GITIGNORE_PATTERN = re.compile(
 class IgnoreRule:
     """Class representing a single rule parsed from a .ignore file."""
 
-    pattern: str             # the .gitignore pattern
+    pattern: str  # the .gitignore pattern
     source: Tuple[str, int]  # (file, line), for reporting
 
-    regex: str               # the regex string of the rule
-    dir_only_regex: str      # the regex to use if the comparing path is a dir
+    regex: str  # the regex string of the rule
+    dir_only_regex: str  # the regex to use if the comparing path is a dir
 
-    negation: bool           # if the rule is a negation of previous rules
-    directory_only: bool     # if the pattern has special regex when dir
+    negation: bool  # if the rule is a negation of previous rules
+    directory_only: bool  # if the pattern has special regex when dir
 
     def __str__(self):
         """Return string representation (user friendly) of the rule."""
@@ -71,20 +57,18 @@ class IgnoreRule:
 
 
 # The character `?` matches any one character except `/`.
-QUESTION_MARK_REGEX = '[^/]'
+QUESTION_MARK_REGEX = "[^/]"
 # An asterisk `*` matches anything except a slash.
-STAR_REGEX = '[^/]*'
-STAR_STAR_REGEX = '.*'
-MATCH_NOTHING = IgnoreRule('', ('None', 0), 'a^', 'a^', False, False)
+STAR_REGEX = "[^/]*"
+STAR_STAR_REGEX = ".*"
+MATCH_NOTHING = IgnoreRule("", ("None", 0), "a^", "a^", False, False)
 # %%
 
 
 class GitignoreMatcher:
     """Class representing all rules from a .ignore file."""
 
-    def __init__(self,
-                 rules: Iterable[IgnoreRule],
-                 honor_directory_only: bool) -> None:
+    def __init__(self, rules: Iterable[IgnoreRule], honor_directory_only: bool) -> None:
         """Create a GitignoreMatcher object from the given rules.
 
         Args:
@@ -94,8 +78,7 @@ class GitignoreMatcher:
         """
         rules = iter(rules)
         # negation as the first rule(s) does nothing. skip them
-        first_rule = next(
-            (rule for rule in rules if not rule.negation), MATCH_NOTHING)
+        first_rule = next((rule for rule in rules if not rule.negation), MATCH_NOTHING)
         pattern = first_rule.regex
         dir_only_pattern = first_rule.dir_only_regex
         dir_only_rules = first_rule.directory_only
@@ -106,12 +89,11 @@ class GitignoreMatcher:
             dir_only_rules |= rule.directory_only
             if rule.negation:
                 # $ needed for correct dir only negation
-                pattern = f'(?!{rule.regex}$)(?:{pattern})'
-                dir_only_pattern = (f'(?!{rule.dir_only_regex}$)'
-                                    f'(?:{dir_only_pattern})')
+                pattern = f"(?!{rule.regex}$)(?:{pattern})"
+                dir_only_pattern = f"(?!{rule.dir_only_regex}$)" f"(?:{dir_only_pattern})"
             else:
-                pattern = f'{pattern}|{rule.regex}'
-                dir_only_pattern = f'{dir_only_pattern}|{rule.dir_only_regex}'
+                pattern = f"{pattern}|{rule.regex}"
+                dir_only_pattern = f"{dir_only_pattern}|{rule.dir_only_regex}"
 
         self.regex = re.compile(pattern)
         self.honor_directory_only = honor_directory_only and dir_only_rules
@@ -127,7 +109,7 @@ class GitignoreMatcher:
         Returns:
             bool: True if path should be ignored, else False.
         """
-        path = str(path).replace(os.sep, '/')
+        path = str(path).replace(os.sep, "/")
         if self.honor_directory_only and os.path.isdir(path):
             return self.dir_only_regex.fullmatch(path) is not None
         return self.regex.fullmatch(path) is not None
@@ -144,8 +126,7 @@ class GitignoreMatcher:
         """
 
     @overload
-    def __call__(self,
-                 paths: Iterable[Union[str, Path]]) -> List[Union[str, Path]]:
+    def __call__(self, paths: Iterable[Union[str, Path]]) -> List[Union[str, Path]]:
         """Check if the given paths should be ignored.
 
         Args:
@@ -155,9 +136,7 @@ class GitignoreMatcher:
             list[str | Path]: a list of the ignored paths.
         """
 
-    def __call__(self,
-                 path_or_paths: Union[str, Path, Iterable[Union[str, Path]]]
-                 ) -> Union[bool, List[Union[str, Path]]]:
+    def __call__(self, path_or_paths: Union[str, Path, Iterable[Union[str, Path]]]) -> Union[bool, List[Union[str, Path]]]:
         """Check if the given path or paths should be ignored.
 
         Args:
@@ -174,9 +153,7 @@ class GitignoreMatcher:
 
     match = __call__
 
-    def match_iter(self,
-                   paths: Iterable[Union[str, Path]]
-                   ) -> Generator[Union[str, Path], None, None]:
+    def match_iter(self, paths: Iterable[Union[str, Path]]) -> Generator[Union[str, Path], None, None]:
         """Check if the given paths should be ignored [Generator].
 
         Args:
@@ -189,50 +166,38 @@ class GitignoreMatcher:
 
     def __repr__(self) -> str:
         """Return string representation (developer friendly) of the rules."""
-        return f'GitignoreMatcher(rules={self.rules!r})'
+        return f"GitignoreMatcher(rules={self.rules!r})"
 
 
 # %%
 def parse_gitignore_file(*args, **kwargs) -> GitignoreMatcher:
     return parse_gitignore(*args, **kwargs)
 
-def parse_gitignore(gitignore_path: Union[str, Path],
-                    base_dir: Union[str, Path] = '',
-                    honor_directory_only: bool = False
-                    ) -> GitignoreMatcher:
+
+def parse_gitignore(gitignore_path: Union[str, Path], base_dir: Union[str, Path] = "", honor_directory_only: bool = False) -> GitignoreMatcher:
     """Parse a gitignore file."""
     if not base_dir:
         base_dir = Path(gitignore_path).parent
-    with open(gitignore_path, encoding='utf-8') as gitignore_file:
-        generator = _rule_generator(
-            gitignore_file, base_dir, str(gitignore_path))
+    with open(gitignore_path, encoding="utf-8") as gitignore_file:
+        generator = _rule_generator(gitignore_file, base_dir, str(gitignore_path))
         return GitignoreMatcher(generator, honor_directory_only)
 
 
-def parse_gitignore_lines(gitignore_lines: List[str],
-                          base_dir: Union[str, Path], source: str = '',
-                          honor_directory_only: bool = False
-                          ) -> GitignoreMatcher:
+def parse_gitignore_lines(gitignore_lines: List[str], base_dir: Union[str, Path], source: str = "", honor_directory_only: bool = False) -> GitignoreMatcher:
     """Parse a list of lines matching gitignore syntax."""
     generator = _rule_generator(gitignore_lines, base_dir, source)
 
     return GitignoreMatcher(generator, honor_directory_only)
 
 
-def _rule_generator(gitignore_lines: Iterable[str],
-                    base_dir: Union[str, Path], source: str
-                    ) -> Generator[IgnoreRule, None, None]:
+def _rule_generator(gitignore_lines: Iterable[str], base_dir: Union[str, Path], source: str) -> Generator[IgnoreRule, None, None]:
     for line_number, line in enumerate(gitignore_lines, start=1):
-        ignore_rule = rule_from_pattern(
-            pattern=line, base_path=base_dir, source=(source, line_number))
+        ignore_rule = rule_from_pattern(pattern=line, base_path=base_dir, source=(source, line_number))
         if ignore_rule:
             yield ignore_rule
 
 
-def rule_from_pattern(pattern: str,
-                      base_path: Union[str, Path],
-                      source: Tuple[str, int] = ('Unknown', 0)
-                      ) -> Optional[IgnoreRule]:
+def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[str, int] = ("Unknown", 0)) -> Optional[IgnoreRule]:
     """Generate an IgnoreRule object from given pattern.
 
     Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
@@ -242,27 +207,26 @@ def rule_from_pattern(pattern: str,
     Because git allows for nested .gitignore files, a base_path value
     is required for correct behavior. The base path should be absolute.
     """
-    base_path = str(base_path).replace(os.sep, '/')
+    base_path = str(base_path).replace(os.sep, "/")
 
     # A blank line matches no files, so it can serve as a separator for
     # readability.
     # A line starting with `#` serves as a comment. Put a backslash (\) in
     # front of the first hash for patterns that begin with a hash.
-    if not pattern or pattern.startswith('#'):
+    if not pattern or pattern.startswith("#"):
         return None
 
-    negation = pattern.startswith('!')
+    negation = pattern.startswith("!")
 
     pending_spaces = None
 
     # so parts[-1] always works
-    parts = ['']
+    parts = [""]
 
     # used to determine if the pattern is anchored
     first_separator_index = None
     index = 0
-    for index, match in enumerate(
-            GITIGNORE_PATTERN.finditer(pattern, pos=negation), start=1):
+    for index, match in enumerate(GITIGNORE_PATTERN.finditer(pattern, pos=negation), start=1):
         # Trailing spaces are ignored unless they are quoted with backslash (\)
         # buffer spacing until next loop (aka it's not trailing). Escaped
         # spaces handled in escaped_char section
@@ -270,16 +234,7 @@ def rule_from_pattern(pattern: str,
             pending_spaces = parts.append(pending_spaces)
 
         # only one of these groups won't be an empty string
-        (separator,
-         star_star,
-         star,
-         question_mark,
-         bracket_expression,
-         escaped_char,
-         name_piece,
-         spaces,
-         error_stars,
-         _) = match.groups()
+        (separator, star_star, star, question_mark, bracket_expression, escaped_char, name_piece, spaces, error_stars, _) = match.groups()
 
         if separator:
             # used to determine if the pattern is anchored
@@ -287,9 +242,9 @@ def rule_from_pattern(pattern: str,
             # handle `a/**/b` matching `a/b`
             if parts[-1] == STAR_STAR_REGEX:
                 # `!foo/**/` *needs* to match things with a trailing slash
-                parts[-1] = '(?:.*/)' if negation else '(?:.*/)?'
+                parts[-1] = "(?:.*/)" if negation else "(?:.*/)?"
             else:
-                parts.append('/')
+                parts.append("/")
 
         elif star_star:
             parts.append(STAR_STAR_REGEX)
@@ -313,61 +268,52 @@ def rule_from_pattern(pattern: str,
             index -= 1
             continue
         elif error_stars:
-            logging.error(
-                'error from %s on line %s\n%s\n%s%s', source[0], source[1],
-                pattern, " " * match.start(), "^" * len(match.group(0)))
+            logging.error("error from %s on line %s\n%s\n%s%s", source[0], source[1], pattern, " " * match.start(), "^" * len(match.group(0)))
             return None
         else:
-            logging.error(
-                'error from %s on line %s\n%s', source[0], source[1],
-                pattern)
+            logging.error("error from %s on line %s\n%s", source[0], source[1], pattern)
             return None
 
     # remove '' from start of list
     parts = parts[1:]
 
     # if was whitespace or just a slash
-    if not parts or parts == ['/']:
+    if not parts or parts == ["/"]:
         return None
 
     # special pattern under git?
-    if parts == [STAR_REGEX, '/'] and negation:
+    if parts == [STAR_REGEX, "/"] and negation:
         return None
 
     anchored = first_separator_index not in (None, index)
-    directory_only = parts[-1] == '/'
+    directory_only = parts[-1] == "/"
     dir_only_ending = None
 
     # Also match potential folder contents
     if parts[-1] == STAR_REGEX:
-        parts.append('(?:/.*)?')
+        parts.append("(?:/.*)?")
     elif directory_only:
         # used after verifying path is dir
-        dir_only_ending = '(?:/.*)?'
+        dir_only_ending = "(?:/.*)?"
         # assume paths that don't end in slash are files
-        parts[-1] = '/.*'
+        parts[-1] = "/.*"
     else:
-        parts.append('(?:/.*)?')
+        parts.append("(?:/.*)?")
 
-    regex, dir_only_regex = _build_regex(
-        base_path, parts, dir_only_ending, anchored)
+    regex, dir_only_regex = _build_regex(base_path, parts, dir_only_ending, anchored)
 
-    return IgnoreRule(
-        pattern=pattern,
-        regex=regex,
-        dir_only_regex=dir_only_regex,
-        negation=negation,
-        directory_only=directory_only,
-        source=source)
+    return IgnoreRule(pattern=pattern, regex=regex, dir_only_regex=dir_only_regex, negation=negation, directory_only=directory_only, source=source)
 
 
-ESCAPED_CHAR_OR_SLASH_PATTERN = re.compile(r'\\(.)|([\\/])')
+ESCAPED_CHAR_OR_SLASH_PATTERN = re.compile(r"\\(.)|([\\/])")
+
+
 def _translate_brackets(bracket_expression: str) -> str:
     bracket_regex = ESCAPED_CHAR_OR_SLASH_PATTERN.sub(_unescape, bracket_expression)
     # both ! and ^ are valid negation in .gitignore
     # but only ^ is interpreted as negation in regex.
-    if bracket_regex.startswith('[!'):
-        bracket_regex = '[^' + bracket_regex[2:]
+    if bracket_regex.startswith("[!"):
+        bracket_regex = "[^" + bracket_regex[2:]
     return bracket_regex
 
 
@@ -375,33 +321,28 @@ def _unescape(match: re.Match) -> str:
     escaped_char = match.group(1)
 
     # don't allow path separators in brackets
-    if match.group(2) or escaped_char in r'\/':
-        return ''
+    if match.group(2) or escaped_char in r"\/":
+        return ""
 
     # only keep escaping if \- or \^
     # Otherwise \0 and \d would be wrong
-    if match.group(1) in '-^':
+    if match.group(1) in "-^":
         return match.group(0)
     return match.group(1)
 
 
-def _build_regex(base_path: str,
-                 parts: List[str],
-                 dir_only_ending: Union[str, None],
-                 anchored: bool
-                 ) -> Tuple[str, str]:
-
+def _build_regex(base_path: str, parts: List[str], dir_only_ending: Union[str, None], anchored: bool) -> Tuple[str, str]:
     # leading slash handled by anchor
-    if base_path.endswith('/'):
+    if base_path.endswith("/"):
         base_path = base_path[:-1]
 
-    anchor = '/' if anchored else '/(?:.*/)?'
+    anchor = "/" if anchored else "/(?:.*/)?"
 
     # leading slash handled by anchor
-    if parts[0].startswith('/'):
+    if parts[0].startswith("/"):
         parts[0] = parts[0][1:]
 
-    partial_regex = re.escape(base_path) + anchor + ''.join(parts[:-1])
+    partial_regex = re.escape(base_path) + anchor + "".join(parts[:-1])
     regex = partial_regex + parts[-1]
 
     if dir_only_ending:
