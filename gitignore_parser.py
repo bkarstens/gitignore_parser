@@ -205,6 +205,8 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
     Because git allows for nested .gitignore files, a base_path value
     is required for correct behavior. The base path should be absolute.
     """
+    if base_path and not Path(base_path).anchor:
+        raise ValueError('base_path must be absolute')
     base_path = str(base_path).replace(os.sep, "/")
 
     # A blank line matches no files, so it can serve as a separator for
