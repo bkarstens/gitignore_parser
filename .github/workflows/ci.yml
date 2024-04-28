@@ -19,6 +19,8 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Install testing dependencies
+      run: pip install GitPython
     - name: Test with pytest
       run: |
         python -m unittest
