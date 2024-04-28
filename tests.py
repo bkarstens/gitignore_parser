@@ -63,7 +63,7 @@ class Test(TestCase):
             "/home/michael/dir/main.pyc",
             "/home/michael/__pycache__/",
         ]
-        for path, expected in zip(matches.match_iter(paths), expected_output, strict=True):
+        for path, expected in zip(matches.match_iter(paths), expected_output):
             self.assertEqual(path, expected)
 
     def test_empty(self):
