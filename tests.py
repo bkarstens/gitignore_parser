@@ -1,56 +1,49 @@
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Generator, Tuple, List, Union
+from typing import Generator, Union
 from unittest import TestCase
-from unittest.mock import mock_open, patch
+
 from git.repo import Repo
 
 from gitignore_parser import parse_gitignore, parse_gitignore_lines
 
 
 @contextmanager
-def TemporaryRepo(gitignore_content) -> Generator[Tuple[Repo, Path], None, None]:
+def TemporaryRepo(gitignore_content: str) -> Generator[tuple[Repo, Path, Path], None, None]:
     with TemporaryDirectory() as base_dir, Repo.init(base_dir) as repo:
         base_dir = Path(base_dir)
         gitignore_path = base_dir / ".gitignore"
         with gitignore_path.open("wt", encoding="utf-8") as gitignore:
             gitignore.write(gitignore_content)
-        yield repo, gitignore_path
+        yield repo, base_dir, gitignore_path
 
 
 class Test(TestCase):
-    def _test_matches_git(self, gitignore_content: Union[str, List[str]], paths: List[str]):
+    def _test_matches_git(self, gitignore_content: str | list[str], paths: list[str]):
         if isinstance(gitignore_content, list):
             gitignore_content = "\n".join(gitignore_content)
-        with TemporaryRepo(gitignore_content) as (repo, gitignore_path):
+        with TemporaryRepo(gitignore_content) as (repo, repo_path, gitignore_path):
             ignored = parse_gitignore(gitignore_path)
-            paths = [str(gitignore_path.parent / path) for path in paths]
-            ignored_by_git = {*repo.ignored(paths)}
+            paths = [str(repo_path / path) for path in paths]
+            ignored_by_git = {*repo.ignored(*paths)}
             ignored_by_parser = {*ignored(paths)}
             self.assertSetEqual(ignored_by_parser, ignored_by_git)
 
-    def test_simple(self):
+    def test_simple_file(self):
         ignore_lines = "__pycache__/\n*.py[cod]"
         paths = ["main.py", "main.pyc", "dir/main.pyc", "__pycache__/"]
         self._test_matches_git(ignore_lines, paths)
 
     def test_simple_lines(self):
-        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael")
-        self.assertFalse(matches("/home/michael/main.py"))
-        self.assertTrue(matches("/home/michael/main.pyc"))
-        self.assertTrue(matches("/home/michael/dir/main.pyc"))
-        self.assertTrue(matches("/home/michael/__pycache__/"))
-
-    def test_base_slash(self):
-        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael/")
+        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], full_path="/home/michael/.gitignore")
         self.assertFalse(matches("/home/michael/main.py"))
         self.assertTrue(matches("/home/michael/main.pyc"))
         self.assertTrue(matches("/home/michael/dir/main.pyc"))
         self.assertTrue(matches("/home/michael/__pycache__/"))
 
     def test_generator(self):
-        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], base_dir="/home/michael")
+        matches = parse_gitignore_lines(["__pycache__/\n", "*.py[cod]"], full_path="/home/michael/.gitignore")
 
         paths = [
             "/home/michael/main.py",
@@ -208,6 +201,13 @@ class Test(TestCase):
         paths = [
             "XYZa/b",
             "foo/a/b",
+        ]
+        self._test_matches_git(lines, paths)
+
+        lines = "a/b***\n"
+        paths = [
+            "a/bXYZ",
+            "a/b/foo",
         ]
         self._test_matches_git(lines, paths)
 
@@ -392,24 +392,25 @@ foo/barfiz/buz
         self._test_matches_git(lines, paths)
 
     def test_directory_only(self):
-        matches = _parse_gitignore_string("foo/", fake_base_dir="/home/michael", honor_directory_only=True)
-        with patch("os.path.isdir", lambda path: True):
-            self.assertTrue(matches("/home/michael/foo"))
-        with patch("os.path.isdir", lambda path: False):
-            self.assertFalse(matches("/home/michael/foo"))
-            self.assertTrue(matches("/home/michael/foo/bar.txt"))
+        with TemporaryRepo("foo/") as (repo, repo_path, gitignore_path):
+            ignored = parse_gitignore(gitignore_path, base_dir=repo_path, honor_directory_only=True)
+            self.assertFalse(ignored(repo_path / "foo"))
+            self.assertTrue(ignored(repo_path / "foo/bar.txt"))
+            (repo_path / "foo").mkdir()
+            self.assertTrue(ignored(repo_path / "foo"))
 
     def test_negated_directory_only(self):
-        matches = _parse_gitignore_string("**\n!foo/", fake_base_dir="/home/michael", honor_directory_only=True)
-        with patch("os.path.isdir", lambda path: True):
-            self.assertFalse(matches("/home/michael/foo"))
-            self.assertFalse(matches("/home/michael/foo/"))
-        with patch("os.path.isdir", lambda path: False):
-            self.assertTrue(matches("/home/michael/foo"))
-            self.assertFalse(matches("/home/michael/foo/bar.txt"))
+        with TemporaryRepo("**\n!foo/") as (repo, repo_path, gitignore_path):
+            ignored = parse_gitignore(gitignore_path, base_dir=repo_path, honor_directory_only=True)
+            self.assertTrue(ignored(repo_path / "foo"))
+            self.assertFalse(ignored(repo_path / "foo/bar.txt"))
+
+            (repo_path / "foo").mkdir()
+
+            self.assertFalse(ignored(repo_path / "foo"))
 
     def test_supports_path_type_argument(self):
-        matches = _parse_gitignore_string("file1\n!file2", fake_base_dir="/home/michael")
+        matches = parse_gitignore_lines(["file1","!file2"], full_path="/home/michael/.gitignore")
         self.assertTrue(matches(Path("/home/michael/file1")))
         self.assertFalse(matches(Path("/home/michael/file2")))
 
@@ -431,11 +432,6 @@ foo/barfiz/buz
         ]
         self._test_matches_git(lines, paths)
 
-
-def _parse_gitignore_string(data: str, fake_base_dir: str = None, honor_directory_only: bool = False):
-    with patch("builtins.open", mock_open(read_data=data)):
-        success = parse_gitignore(f"{fake_base_dir}/.gitignore", fake_base_dir, honor_directory_only)
-        return success
 
 
 if __name__ == "__main__":

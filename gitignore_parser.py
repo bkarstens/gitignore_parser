@@ -5,9 +5,16 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Iterable, List, Optional, Tuple, Union, overload
+from typing import Generator, Iterable, Optional, overload
 
-__all__ = ["IgnoreRule", "GitignoreMatcher", "parse_gitignore", "parse_gitignore_lines", "rule_from_pattern"]
+__all__ = [
+    "IgnoreRule",
+    "GitignoreMatcher",
+    "parse_gitignore",
+    "parse_gitignore_file",
+    "parse_gitignore_lines",
+    "rule_from_pattern",
+]
 
 # %%
 GITIGNORE_PATTERN = re.compile(
@@ -41,7 +48,7 @@ class IgnoreRule:
     """Class representing a single rule parsed from a .ignore file."""
 
     pattern: str  # the .gitignore pattern
-    source: Tuple[str, int]  # (file, line), for reporting
+    source: tuple[str, int]  # (file, line), for reporting
 
     regex: str  # the regex string of the rule
     dir_only_regex: str  # the regex to use if the comparing path is a dir
@@ -49,7 +56,7 @@ class IgnoreRule:
     negation: bool  # if the rule is a negation of previous rules
     directory_only: bool  # if the pattern has special regex when dir
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Return string representation (user friendly) of the rule."""
         return self.pattern
 
@@ -98,7 +105,7 @@ class GitignoreMatcher:
         if self.honor_directory_only:
             self.dir_only_regex = re.compile(dir_only_pattern)
 
-    def _call(self, path: Union[str, Path]) -> bool:
+    def _call(self, path: str | Path) -> bool:
         """Check if given path should be ignored.
 
         Args:
@@ -107,34 +114,25 @@ class GitignoreMatcher:
         Returns:
             bool: True if path should be ignored, else False.
         """
-        path = str(path).replace(os.sep, "/")
-        if self.honor_directory_only and os.path.isdir(path):
-            return self.dir_only_regex.fullmatch(path) is not None
-        return self.regex.fullmatch(path) is not None
+        trailing_slash = ""
+        if isinstance(path, str):
+            if path.endswith(("/", "\\")):
+                trailing_slash = "/"
+            path = Path(path)
+
+        if self.honor_directory_only and (trailing_slash or path.is_dir()):
+            return self.dir_only_regex.fullmatch(path.as_posix()) is not None
+        return self.regex.fullmatch(path.as_posix() + trailing_slash) is not None
 
     @overload
-    def __call__(self, path: Union[str, Path]) -> bool:
-        """Check if given path should be ignored.
-
-        Args:
-            path (str | Path): The path to check.
-
-        Returns:
-            bool: True if path should be ignored, else False.
-        """
+    def __call__(self, path: str | Path) -> bool:
+        ...
 
     @overload
-    def __call__(self, paths: Iterable[Union[str, Path]]) -> List[Union[str, Path]]:
-        """Check if the given paths should be ignored.
+    def __call__(self, paths: Iterable[str | Path]) -> list[str | Path]:
+        ...
 
-        Args:
-            paths (Iterable[str | Path]): the paths to be checked.
-
-        Returns:
-            list[str | Path]: a list of the ignored paths.
-        """
-
-    def __call__(self, path_or_paths: Union[str, Path, Iterable[Union[str, Path]]]) -> Union[bool, List[Union[str, Path]]]:
+    def __call__(self, path_or_paths: str | Path | Iterable[str | Path]) -> bool | list[str | Path]:
         """Check if the given path or paths should be ignored.
 
         Args:
@@ -151,7 +149,7 @@ class GitignoreMatcher:
 
     match = __call__
 
-    def match_iter(self, paths: Iterable[Union[str, Path]]) -> Generator[Union[str, Path], None, None]:
+    def match_iter(self, paths: Iterable[str | Path]) -> Generator[str | Path, None, None]:
         """Check if the given paths should be ignored [Generator].
 
         Args:
@@ -168,11 +166,11 @@ class GitignoreMatcher:
 
 
 # %%
-def parse_gitignore_file(*args, **kwargs) -> GitignoreMatcher:
-    return parse_gitignore(*args, **kwargs)
 
 
-def parse_gitignore(gitignore_path: Union[str, Path], base_dir: Union[str, Path] = "", honor_directory_only: bool = False) -> GitignoreMatcher:
+def parse_gitignore(
+    gitignore_path: str | Path, base_dir: str | Path = "", honor_directory_only: bool = False
+) -> GitignoreMatcher:
     """Parse a gitignore file."""
     if not base_dir:
         base_dir = Path(gitignore_path).parent
@@ -181,21 +179,31 @@ def parse_gitignore(gitignore_path: Union[str, Path], base_dir: Union[str, Path]
         return GitignoreMatcher(generator, honor_directory_only)
 
 
-def parse_gitignore_lines(gitignore_lines: List[str], base_dir: Union[str, Path], source: str = "", honor_directory_only: bool = False) -> GitignoreMatcher:
+parse_gitignore_file = parse_gitignore
+
+
+def parse_gitignore_lines(
+    gitignore_lines: list[str], full_path: str | Path, source: str = "", honor_directory_only: bool = False
+) -> GitignoreMatcher:
     """Parse a list of lines matching gitignore syntax."""
+    base_dir = Path(full_path).parent
     generator = _rule_generator(gitignore_lines, base_dir, source)
 
     return GitignoreMatcher(generator, honor_directory_only)
 
 
-def _rule_generator(gitignore_lines: Iterable[str], base_dir: Union[str, Path], source: str) -> Generator[IgnoreRule, None, None]:
+def _rule_generator(
+    gitignore_lines: Iterable[str], base_dir: str | Path, source: str
+) -> Generator[IgnoreRule, None, None]:
     for line_number, line in enumerate(gitignore_lines, start=1):
         ignore_rule = rule_from_pattern(pattern=line, base_path=base_dir, source=(source, line_number))
         if ignore_rule:
             yield ignore_rule
 
 
-def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[str, int] = ("Unknown", 0)) -> Optional[IgnoreRule]:
+def rule_from_pattern(
+    pattern: str, base_path: str | Path, source: tuple[str, int] = ("Unknown", 0)
+) -> Optional[IgnoreRule]:
     """Generate an IgnoreRule object from given pattern.
 
     Take a .gitignore match pattern, such as "*.py[cod]" or "**/*.bak",
@@ -206,7 +214,7 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
     is required for correct behavior. The base path should be absolute.
     """
     if base_path and not Path(base_path).anchor:
-        raise ValueError('base_path must be absolute')
+        raise ValueError("base_path must be absolute")
     base_path = str(base_path).replace(os.sep, "/")
 
     # A blank line matches no files, so it can serve as a separator for
@@ -234,7 +242,17 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
             pending_spaces = parts.append(pending_spaces)
 
         # only one of these groups won't be an empty string
-        (separator, star_star, star, question_mark, bracket_expression, escaped_char, name_piece, spaces, _) = match.groups()
+        (
+            separator,
+            star_star,
+            star,
+            question_mark,
+            bracket_expression,
+            escaped_char,
+            name_piece,
+            spaces,
+            _,
+        ) = match.groups()
 
         if separator:
             # used to determine if the pattern is anchored
@@ -284,7 +302,7 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
 
     anchored = first_separator_index not in (None, index)
     directory_only = parts[-1] == "/"
-    dir_only_ending = None
+    dir_only_ending = ""
 
     # Also match potential folder contents
     if parts[-1] == STAR_REGEX:
@@ -299,7 +317,14 @@ def rule_from_pattern(pattern: str, base_path: Union[str, Path], source: Tuple[s
 
     regex, dir_only_regex = _build_regex(base_path, parts, dir_only_ending, anchored)
 
-    return IgnoreRule(pattern=pattern, regex=regex, dir_only_regex=dir_only_regex, negation=negation, directory_only=directory_only, source=source)
+    return IgnoreRule(
+        pattern=pattern,
+        regex=regex,
+        dir_only_regex=dir_only_regex,
+        negation=negation,
+        directory_only=directory_only,
+        source=source,
+    )
 
 
 ESCAPED_CHAR_OR_SLASH_PATTERN = re.compile(r"\\(.)|([\\/])")
@@ -328,7 +353,7 @@ def _unescape(match: re.Match) -> str:
     return match.group(1)
 
 
-def _build_regex(base_path: str, parts: List[str], dir_only_ending: Union[str, None], anchored: bool) -> Tuple[str, str]:
+def _build_regex(base_path: str, parts: list[str], dir_only_ending: str, anchored: bool) -> tuple[str, str]:
     # leading slash handled by anchor
     if base_path.endswith("/"):
         base_path = base_path[:-1]
